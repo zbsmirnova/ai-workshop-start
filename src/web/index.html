@@ -12,6 +12,7 @@
   h1 { margin: 0 0 12px; font-size: 18px; }
   form { display: flex; gap: 8px; }
   input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
+  #filter { display: block; width: 100%; margin-top: 8px; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
   button:disabled { opacity: .6; cursor: progress; }
   main { display: grid; grid-template-columns: minmax(260px, 2fr) 3fr; min-height: 0; }
@@ -42,6 +43,7 @@
     <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo or a local directory" aria-label="Repository link" required autofocus>
     <button id="scan" type="submit">Scan</button>
   </form>
+  <input id="filter" type="search" placeholder="Filter skills by words" aria-label="Filter skills">
 </header>
 <main>
   <section id="list">
@@ -70,23 +72,42 @@ const element = (tag, className, text) => {
   return node;
 };
 
+// The last rendered scan, for client-side filtering; null before and between scans.
+let current = null;
+
 $('form').addEventListener('submit', (event) => {
   event.preventDefault();
   const repo = $('repo').value.trim();
-  history.pushState(null, '', `?repo=${encodeURIComponent(repo)}`);
+  history.pushState(null, '', address(repo));
   scan(repo);
+});
+$('filter').addEventListener('input', () => {
+  if (!current) return;
+  history.replaceState(null, '', address($('repo').value.trim()));
+  applyFilter();
 });
 addEventListener('popstate', () => load());
 load();
 
+/** `?repo=<link>`, with `&filter=<words>` unless the filter is blank. */
+function address(repo) {
+  const params = new URLSearchParams({ repo });
+  const filter = $('filter').value;
+  if (filter.trim()) params.set('filter', filter);
+  return `?${params}`;
+}
+
 function load() {
-  const repo = new URLSearchParams(location.search).get('repo') ?? '';
+  const params = new URLSearchParams(location.search);
+  const repo = params.get('repo') ?? '';
   $('repo').value = repo;
+  $('filter').value = params.get('filter') ?? '';
   if (repo) scan(repo);
   else clear();
 }
 
 function clear() {
+  current = null;
   $('error').hidden = true;
   $('summary').textContent = '';
   $('skills').replaceChildren();
@@ -113,7 +134,7 @@ async function scan(repo) {
 }
 
 function render({ repository, skills, warnings }) {
-  $('summary').textContent = `${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
+  current = { repository, skills };
   $('skills').replaceChildren(...skills.map((skill) => {
     const item = element('li');
     item.tabIndex = 0;
@@ -137,7 +158,33 @@ function render({ repository, skills, warnings }) {
     return item;
   }));
   $('warnings').replaceChildren(...warnings.map((warning) => element('li', '', `warning: ${warning}`)));
-  if (skills.length) $('skills').firstElementChild.click();
+  applyFilter();
+}
+
+/** Hides the skills the filter drops, counts the rest in the header, and keeps a visible selection. */
+function applyFilter() {
+  const { repository, skills } = current;
+  const filter = $('filter').value;
+  const items = [...$('skills').children];
+  items.forEach((item, index) => { item.hidden = !matches(skills[index], filter); });
+  const visible = items.filter((item) => !item.hidden);
+  const total = `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
+  $('summary').textContent = `${repository.id} · ${filter.trim() ? `${visible.length} of ${total}` : total}`;
+  if (!visible.some((item) => item.getAttribute('aria-selected') === 'true')) {
+    if (visible.length) visible[0].click();
+    else {
+      for (const item of items) item.setAttribute('aria-selected', 'false');
+      show(undefined);
+    }
+  }
+}
+
+/** The filter of spec/cli.md: every word in the name or description, a case-insensitive substring. */
+function matches(skill, filter) {
+  const name = skill.name.toLowerCase();
+  const description = skill.description.toLowerCase();
+  return filter.toLowerCase().split(/\s+/).filter(Boolean)
+    .every((word) => name.includes(word) || description.includes(word));
 }
 
 function show(skill) {

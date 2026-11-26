@@ -60,6 +60,59 @@ test('./fixture: every skill, sorted by name, linked to its file, with a warning
   assert.match(fixture.stderr, /^warning: \.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
 });
 
+test('scan --filter keeps skills whose name or description contains every word, case-insensitively', async () => {
+  const root = pathToFileURL(FIXTURE).href;
+  // "COMMIT" is a case-insensitive substring of "committing" (code-style) and "commit" (commits).
+  const oneWord = await atlas(['scan', FIXTURE, '--filter', 'COMMIT']);
+  assert.equal(oneWord.code, 0);
+  assert.equal(
+    oneWord.stdout,
+    [
+      'fixture · 2 skills',
+      "code-style — Follow the project's code style.",
+      `  ${root}/.github/skills/code-style/SKILL.md`,
+      'commits — Write commit messages the way this repository does.',
+      `  ${root}/.claude/skills/commits/SKILL.md`,
+    ].join('\n'),
+  );
+
+  // AND: every word must match; "style" drops commits. Words may come as separate arguments.
+  for (const args of [['--filter', 'commit style'], ['--filter', 'commit', 'style'], ['--filter=commit', 'style']]) {
+    const and = await atlas(['scan', FIXTURE, ...args]);
+    assert.equal(and.code, 0, args.join(' '));
+    assert.equal(
+      and.stdout,
+      [
+        'fixture · 1 skill',
+        "code-style — Follow the project's code style.",
+        `  ${root}/.github/skills/code-style/SKILL.md`,
+      ].join('\n'),
+      args.join(' '),
+    );
+  }
+});
+
+test('scan --filter with no matches is a successful scan with 0 skills, keeping the warnings', async () => {
+  const none = await atlas(['scan', FIXTURE, '--filter', 'no-such-words']);
+  assert.equal(none.code, 0);
+  assert.equal(none.stdout, 'fixture · 0 skills');
+  assert.match(none.stderr, /^warning: \.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('a blank scan --filter keeps every skill', async () => {
+  const blank = await atlas(['scan', FIXTURE, '--filter', '  ']);
+  assert.equal(blank.code, 0);
+  assert.equal(blank.stdout, fixture.stdout);
+});
+
+test('unknown scan arguments → usage, exit code 1', async () => {
+  for (const args of [['scan'], ['scan', FIXTURE, '--nope'], ['scan', '--filter', 'words']]) {
+    const result = await atlas(args);
+    assert.equal(result.code, 1, args.join(' '));
+    assert.equal(result.stderr, 'Usage: skill-atlas scan <GitHub URL | directory> [--filter <words>]', args.join(' '));
+  }
+});
+
 test('an empty local directory scans successfully with no skills', (t) => {
   const root = temporaryRepository(t);
   const scanned = scanLocal(root);

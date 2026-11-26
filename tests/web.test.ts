@@ -59,6 +59,7 @@ test('GET / is the page, with a field for the repository link', async (t) => {
   const { document } = new JSDOM(await response.text()).window;
   assert.equal(document.querySelector('input#repo')?.getAttribute('aria-label'), 'Repository link');
   assert.equal(document.querySelector('button[type=submit]')?.textContent, 'Scan');
+  assert.equal(document.querySelector('input#filter')?.getAttribute('aria-label'), 'Filter skills');
 });
 
 test('the API returns the repository, each skill with its pinned link and full SKILL.md, and the warnings', async (t) => {
@@ -245,6 +246,49 @@ test('the page: submitting the field scans it and keeps it in the address', asyn
   assert.equal(text('#summary'), 'JetBrains/example · 1 skill');
   assert.equal(text('#skills .link'), `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`);
   assert.equal(text('#body'), '# Commits\n');
+});
+
+test('the page: opening ?filter= applies it after the scan: hidden entries, M of N, a visible selection', async (t) => {
+  // AND, case-insensitive substrings: "COMMIT style" keeps only code-style.
+  const { document, text } = await page(t, `/?repo=${encodeURIComponent(FIXTURE)}&filter=${encodeURIComponent('COMMIT style')}`);
+  assert.equal((document.getElementById('filter') as HTMLInputElement).value, 'COMMIT style');
+  assert.equal(text('#summary'), 'fixture · 1 of 3 skills');
+  const visible = [...document.querySelectorAll<HTMLElement>('#skills > li:not([hidden])')];
+  assert.deepEqual(visible.map((item) => item.querySelector('.name')?.textContent), ['code-style']);
+  assert.equal(visible[0].getAttribute('aria-selected'), 'true');
+  assert.equal(text('#title'), 'code-style');
+});
+
+test('the page: the filter field filters live, client-side, and keeps its value in the address', async (t) => {
+  const { window, document, text } = await page(t, `/?repo=${encodeURIComponent(FIXTURE)}`);
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  const type = (value: string) => {
+    filter.value = value;
+    filter.dispatchEvent(new window.Event('input'));
+  };
+
+  type('RELEASE');
+  assert.equal(text('#summary'), 'fixture · 1 of 3 skills');
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li:not([hidden]) .name')].map((name) => name.textContent),
+    ['release-checklist'],
+  );
+  assert.equal(new URLSearchParams(window.location.search).get('filter'), 'RELEASE');
+  assert.equal(text('#title'), 'release-checklist');
+
+  // No matches: a 0 of N header and no selection.
+  type('no-such-words');
+  assert.equal(text('#summary'), 'fixture · 0 of 3 skills');
+  assert.equal(document.querySelectorAll('#skills > li:not([hidden])').length, 0);
+  assert.equal(document.querySelectorAll('#skills > li[aria-selected="true"]').length, 0);
+  assert.equal(document.getElementById('details')?.hidden, true);
+
+  // A blank filter keeps every skill and drops the parameter.
+  type('');
+  assert.equal(text('#summary'), 'fixture · 3 skills');
+  assert.equal(document.querySelectorAll('#skills > li:not([hidden])').length, 3);
+  assert.equal(new URLSearchParams(window.location.search).get('filter'), null);
+  assert.equal(new URLSearchParams(window.location.search).get('repo'), FIXTURE);
 });
 
 test('the page: an error is a clear message in place of the result', async (t) => {

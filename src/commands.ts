@@ -18,7 +18,7 @@ const DEFAULT_PORT = 4173;
 
 const usage = `Usage: skill-atlas <command>
 
-  scan <GitHub URL | directory>   find project skills in a repository and print them
+  scan <GitHub URL | directory> [--filter <words>]   find project skills in a repository and print them
   serve [--port <port>]           the same, in a local web view (port ${DEFAULT_PORT} by default)
   help                            show this help`;
 
@@ -39,10 +39,30 @@ export async function run(args: string[], context: Context): Promise<number> {
 }
 
 async function scanCommand(args: string[], context: Context) {
-  if (args.length !== 1) throw new AtlasError('Usage: skill-atlas scan <GitHub URL | directory>');
-  const result = await scan(await context.open(args[0]));
-  printRepository(result.repository, result.skills, context);
+  const usage = 'Usage: skill-atlas scan <GitHub URL | directory> [--filter <words>]';
+  const [input, ...rest] = args;
+  if (!input || input.startsWith('--')) throw new AtlasError(usage);
+  let filter = '';
+  if (rest.length) {
+    const inline = /^--filter(?:=(.*))?$/.exec(rest[0]);
+    if (!inline) throw new AtlasError(usage);
+    filter = [inline[1] ?? '', ...rest.slice(1)].join(' ');
+  }
+  const result = await scan(await context.open(input));
+  const skills = result.skills.filter((skill) => matchesFilter(skill, filter));
+  printRepository(result.repository, skills, context);
   for (const warning of result.warnings) context.error(`warning: ${warning}`);
+}
+
+/**
+ * The filter of spec/cli.md: every whitespace-separated word must appear in the skill's name or
+ * description, as a case-insensitive substring. A blank filter keeps every skill.
+ */
+function matchesFilter(skill: Pick<Skill, 'name' | 'description'>, filter: string): boolean {
+  const name = skill.name.toLowerCase();
+  const description = skill.description.toLowerCase();
+  return filter.toLowerCase().split(/\s+/).filter(Boolean)
+    .every((word) => name.includes(word) || description.includes(word));
 }
 
 async function serveCommand(args: string[], context: Context) {
