@@ -25,7 +25,8 @@ build-tools-bump-gradle-api — Bumps the Gradle API…
 JetBrains/mps · 2 skills
 …
 ```
-- The first header counts scanned repositories (after skipping forks and archived) and all listed skills
+- The first header counts the listed repositories — forks and archived skipped — and the skills found
+- The CLI prints every repository at once; only the [web API](#api) is paged
 - Then one [repository section](cli.md#output) per repository *with at least one listed skill*, in repository-name order; skill-less repositories are omitted
 - [`--filter`](cli.md#filter) applies to every skill; both headers count the *matching* skills, and a repository left with no matches is omitted
 - No repositories, or no skills anywhere → a successful scan with `· 0 skills`
@@ -33,14 +34,17 @@ JetBrains/mps · 2 skills
 
 ## Web view
 - The repository field also accepts an owner URL; `?repo=` and `?filter=` work the same
+- The page loads the result **page by page** and appends repository sections as they arrive; while more pages load, the header ends with `· scanning…`
 - The header: `<owner> · R repositories · N skills`; with an active filter, `… · M of N skills`
-- Repository sections and skill entries as in the CLI; selecting a skill shows its `SKILL.md`, as for one repository
+- Repository sections (`<owner>/<repo> · n skills`) and skill entries as in the CLI; a section header counts its *matching* skills and a section left with none is hidden
+- Selecting a skill shows its `SKILL.md`, as for one repository; warnings are prefixed with the repository id
 
 ### API
-`GET /api/scan?repo=<owner URL>` → `200`, JSON:
+`GET /api/scan?repo=<owner URL>[&page=<n>]` → `200`, JSON: one page of **20 repositories**, by name; `page` is 1-based, 1 by default:
 ```json
 {
   "organization": { "name": "JetBrains", "url": "https://github.com/JetBrains" },
+  "repositoryCount": 142, "page": 1, "pageCount": 8,
   "repositories": [
     { "repository": { "id": "…", "organization": "…", "name": "…", "url": "…", "commit": "…" },
       "skills": [ … ], "warnings": ["…"] }
@@ -48,8 +52,10 @@ JetBrains/mps · 2 skills
   "warnings": ["…"]
 }
 ```
-- `repositories`: every scanned repository, by name, *including* those with zero skills; `skills` as in the [repository response](web.md#api)
-- Top-level `warnings`: listing and per-repository failure warnings
+- *Nothing is stored*: each page request lists the repositories again and scans only its slice; a repository created or renamed between requests may shift pages
+- `repositories`: the page's repositories, by name, *including* those with zero skills; `skills` as in the [repository response](web.md#api). A repository whose scan failed is missing, with a top-level warning.
+- Top-level `warnings`: listing warnings and this page's failure warnings
+- A `page` past `pageCount` → `200` with empty `repositories`; a `page` that is not a positive integer → `400`
 - Errors: the same `400`/`500` rules as a [repository scan](web.md#api)
 
 ## Edge cases

@@ -23,6 +23,8 @@
   li { padding: 10px 24px; cursor: pointer; border-left: 3px solid transparent; }
   li:hover { background: #8881; }
   li[aria-selected="true"] { border-left-color: var(--accent); background: #8882; }
+  li.repo { cursor: default; font-weight: 600; padding-top: 18px; }
+  li.repo:hover { background: none; }
   .name { font-weight: 600; }
   .description { color: var(--muted); font-size: 14px; }
   .link { display: block; font-size: 12px; overflow-wrap: anywhere; }
@@ -74,6 +76,10 @@ const element = (tag, className, text) => {
 
 // The last rendered scan, for client-side filtering; null before and between scans.
 let current = null;
+// The selected skill's id, kept across filtering and progressive organization renders.
+let selectedId = null;
+// Grows on every new scan, so a stale page loop stops rendering.
+let scanId = 0;
 
 $('form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -108,6 +114,7 @@ function load() {
 
 function clear() {
   current = null;
+  selectedId = null;
   $('error').hidden = true;
   $('summary').textContent = '';
   $('skills').replaceChildren();
@@ -117,66 +124,132 @@ function clear() {
 
 async function scan(repo) {
   clear();
+  const id = ++scanId;
   $('scan').disabled = true;
   $('summary').textContent = 'Scanning…';
   try {
-    const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}`);
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error);
-    render(result);
+    const first = await api(repo);
+    if (id !== scanId) return;
+    if (!first.organization) {
+      render({
+        mode: 'repository',
+        label: first.repository.id,
+        groups: [{ repository: first.repository, skills: first.skills }],
+        warnings: first.warnings,
+      });
+    } else {
+      // Organization pages are loaded in order and appended as they arrive.
+      const pages = [first];
+      renderOrganizationPages(pages, first.pageCount > 1);
+      for (let page = 2; page <= first.pageCount; page++) {
+        const next = await api(repo, page);
+        if (id !== scanId) return;
+        pages.push(next);
+        renderOrganizationPages(pages, page < first.pageCount);
+      }
+    }
   } catch (error) {
+    if (id !== scanId) return;
     $('summary').textContent = '';
     $('error').textContent = error.message;
     $('error').hidden = false;
   } finally {
-    $('scan').disabled = false;
+    if (id === scanId) $('scan').disabled = false;
   }
 }
 
-function render({ repository, skills, warnings }) {
-  current = { repository, skills };
-  $('skills').replaceChildren(...skills.map((skill) => {
-    const item = element('li');
-    item.tabIndex = 0;
-    item.setAttribute('role', 'option');
-    item.append(element('div', 'name', skill.name));
-    if (skill.description) item.append(element('div', 'description', skill.description));
-    for (const [index, href] of [skill.link, ...skill.alternateLinks].entries()) {
-      const link = element('a', 'link', index ? `also: ${href}` : href);
-      link.href = href;
-      link.target = '_blank';
-      link.rel = 'noreferrer';
-      link.addEventListener('click', (event) => event.stopPropagation());
-      item.append(link);
+async function api(repo, page) {
+  const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}${page ? `&page=${page}` : ''}`);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error);
+  return result;
+}
+
+function renderOrganizationPages(pages, loading) {
+  const sections = pages.flatMap((page) => page.repositories);
+  render({
+    mode: 'organization',
+    label: pages[0].organization.name,
+    repositoryCount: pages[0].repositoryCount,
+    groups: sections.map((section) => ({ repository: section.repository, skills: section.skills })),
+    warnings: [
+      ...pages.flatMap((page) => page.warnings),
+      ...sections.flatMap((section) => section.warnings.map((warning) => `${section.repository.id}: ${warning}`)),
+    ],
+    loading,
+  });
+}
+
+/** One list for both modes: an organization gets a heading row per repository with skills. */
+function render(state) {
+  current = state;
+  state.rows = [];
+  for (const group of state.groups) {
+    if (state.mode === 'organization' && group.skills.length) {
+      const heading = element('li', 'repo');
+      heading.setAttribute('role', 'presentation');
+      state.rows.push({ group, element: heading });
     }
-    const select = () => {
-      for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
-      show(skill);
-    };
-    item.addEventListener('click', select);
-    item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
-    return item;
-  }));
-  $('warnings').replaceChildren(...warnings.map((warning) => element('li', '', `warning: ${warning}`)));
+    for (const skill of group.skills) state.rows.push({ group, skill, element: skillItem(skill) });
+  }
+  $('skills').replaceChildren(...state.rows.map((row) => row.element));
+  $('warnings').replaceChildren(...state.warnings.map((warning) => element('li', '', `warning: ${warning}`)));
   applyFilter();
 }
 
-/** Hides the skills the filter drops, counts the rest in the header, and keeps a visible selection. */
-function applyFilter() {
-  const { repository, skills } = current;
-  const filter = $('filter').value;
-  const items = [...$('skills').children];
-  items.forEach((item, index) => { item.hidden = !matches(skills[index], filter); });
-  const visible = items.filter((item) => !item.hidden);
-  const total = `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
-  $('summary').textContent = `${repository.id} · ${filter.trim() ? `${visible.length} of ${total}` : total}`;
-  if (!visible.some((item) => item.getAttribute('aria-selected') === 'true')) {
-    if (visible.length) visible[0].click();
-    else {
-      for (const item of items) item.setAttribute('aria-selected', 'false');
-      show(undefined);
-    }
+function skillItem(skill) {
+  const item = element('li', 'skill');
+  item.tabIndex = 0;
+  item.setAttribute('role', 'option');
+  item.append(element('div', 'name', skill.name));
+  if (skill.description) item.append(element('div', 'description', skill.description));
+  for (const [index, href] of [skill.link, ...skill.alternateLinks].entries()) {
+    const link = element('a', 'link', index ? `also: ${href}` : href);
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.addEventListener('click', (event) => event.stopPropagation());
+    item.append(link);
   }
+  const select = () => { selectedId = skill.id; applySelection(); };
+  item.addEventListener('click', select);
+  item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+  return item;
+}
+
+function count(n, one, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Hides what the filter drops, counts the rest in the headers, and keeps a visible selection. */
+function applyFilter() {
+  const filter = $('filter').value;
+  const skillRows = current.rows.filter((row) => row.skill);
+  for (const row of skillRows) row.element.hidden = !matches(row.skill, filter);
+  for (const row of current.rows) {
+    if (row.skill) continue;
+    const visible = skillRows.filter((other) => other.group === row.group && !other.element.hidden);
+    row.element.hidden = !visible.length;
+    row.element.textContent = `${row.group.repository.id} · ${count(visible.length, 'skill')}`;
+  }
+  const shown = skillRows.filter((row) => !row.element.hidden).length;
+  const total = count(skillRows.length, 'skill');
+  const prefix = current.mode === 'organization'
+    ? `${current.label} · ${count(current.repositoryCount, 'repository', 'repositories')}`
+    : current.label;
+  $('summary').textContent =
+    `${prefix} · ${filter.trim() ? `${shown} of ${total}` : total}${current.loading ? ' · scanning…' : ''}`;
+  applySelection();
+}
+
+/** The selected skill if it is still visible, else the first visible one, else nothing. */
+function applySelection() {
+  const rows = current.rows.filter((row) => row.skill);
+  const visible = rows.filter((row) => !row.element.hidden);
+  const selected = visible.find((row) => row.skill.id === selectedId) ?? visible[0];
+  selectedId = selected ? selected.skill.id : null;
+  for (const row of rows) row.element.setAttribute('aria-selected', String(row === selected));
+  show(selected && selected.skill);
 }
 
 /** The filter of spec/cli.md: every word in the name or description, a case-insensitive substring. */

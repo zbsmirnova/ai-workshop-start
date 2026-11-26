@@ -2,11 +2,14 @@
 // terminal: everything that differs between them comes in through the context.
 import { AtlasError } from './core/errors.ts';
 import { skillLink, type Repository, type Skill } from './core/model.ts';
+import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type Context = {
   /** Opens what the user asked to scan. */
   open(input: string): Promise<Source>;
+  /** Scans every repository of a GitHub owner at once; see spec/organization.md. */
+  scanOrganization?(input: string): Promise<OrganizationPage>;
   print(text: string): void;
   /** Errors and warnings. */
   error(text: string): void;
@@ -18,7 +21,7 @@ const DEFAULT_PORT = 4173;
 
 const usage = `Usage: skill-atlas <command>
 
-  scan <GitHub URL | directory> [--filter <words>]   find project skills in a repository and print them
+  scan <GitHub URL | directory> [--filter <words>]   find project skills in a repository, or every repository of an owner, and print them
   serve [--port <port>]           the same, in a local web view (port ${DEFAULT_PORT} by default)
   help                            show this help`;
 
@@ -48,10 +51,33 @@ async function scanCommand(args: string[], context: Context) {
     if (!inline) throw new AtlasError(usage);
     filter = [inline[1] ?? '', ...rest.slice(1)].join(' ');
   }
+  if (parseOwnerUrl(input) && context.scanOrganization) {
+    printOrganization(await context.scanOrganization(input), filter, context);
+    return;
+  }
   const result = await scan(await context.open(input));
   const skills = result.skills.filter((skill) => matchesFilter(skill, filter));
   printRepository(result.repository, skills, context);
   for (const warning of result.warnings) context.error(`warning: ${warning}`);
+}
+
+/** The combined header, then one section per repository with a matching skill. */
+function printOrganization(result: OrganizationPage, filter: string, context: Context) {
+  const sections = result.repositories.map((section) => ({
+    ...section,
+    skills: section.skills.filter((skill) => matchesFilter(skill, filter)),
+  }));
+  const total = sections.reduce((sum, section) => sum + section.skills.length, 0);
+  context.print(`${result.organization.name} · ${count(result.repositoryCount, 'repository', 'repositories')} · ${count(total, 'skill')}`);
+  for (const section of sections) {
+    if (!section.skills.length) continue;
+    context.print('');
+    printRepository(section.repository, section.skills, context);
+  }
+  for (const warning of result.warnings) context.error(`warning: ${warning}`);
+  for (const section of result.repositories) {
+    for (const warning of section.warnings) context.error(`warning: ${section.repository.id}: ${warning}`);
+  }
 }
 
 /**
@@ -80,9 +106,13 @@ async function serveCommand(args: string[], context: Context) {
   context.print(`Skill Atlas at ${await context.serve(port)}`);
 }
 
+function count(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 /** `<owner>/<repo> · N skills`, then each skill's name, first sentence and links. */
 function printRepository(repository: Repository, skills: Skill[], { print }: Context) {
-  print(`${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`);
+  print(`${repository.id} · ${count(skills.length, 'skill')}`);
   for (const skill of skills) {
     print(skill.description ? `${skill.name} — ${firstSentence(skill.description)}` : skill.name);
     print(`  ${skillLink(repository, skill)}`);

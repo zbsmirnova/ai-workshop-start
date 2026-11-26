@@ -15,6 +15,10 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
 …
 ```
 
+An owner URL, `./skill-atlas scan https://github.com/JetBrains`, scans every repository of an
+organization or user — forks and archived repositories skipped — and prints one section per
+repository with skills. Set `GITHUB_TOKEN`: that is one scan per repository.
+
 The same scan in a local web view: a field for the repository link, its skills, and each skill's
 `SKILL.md`. It listens on this machine only and stores nothing.
 

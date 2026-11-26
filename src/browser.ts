@@ -2,6 +2,7 @@
 // token. No Node APIs here.
 import { run } from './commands.ts';
 import { openGitHub, type Fetch } from './core/github.ts';
+import { scanOrganization } from './core/organization.ts';
 
 export type BrowserOptions = {
   /** Live GitHub; the page's own fetch by default. */
@@ -18,7 +19,12 @@ export function createBrowserBackend(options: BrowserOptions = {}) {
       const output: string[] = [];
       const write = (text: string) => output.push(text);
       try {
-        await run(words(commandLine), { open, print: write, error: write });
+        await run(words(commandLine), {
+          open,
+          scanOrganization: (input) => scanOrganization(input, { fetch: live }),
+          print: write,
+          error: write,
+        });
       } catch (error) {
         write(`Unexpected error: ${error instanceof Error ? error.message : String(error)}`);
       }

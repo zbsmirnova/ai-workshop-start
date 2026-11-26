@@ -3,6 +3,7 @@
 // stderr, or the local web view. Nothing is stored.
 import { run } from './commands.ts';
 import { openGitHub, parseGitHubUrl } from './core/github.ts';
+import { scanOrganization } from './core/organization.ts';
 import { openDirectory } from './local.ts';
 import { createWebServer, listen } from './web.ts';
 
@@ -11,7 +12,11 @@ const open = (input: string) => (parseGitHubUrl(input) ? openGitHub(input, { fet
 
 process.exitCode = await run(process.argv.slice(2), {
   open,
-  serve: (port) => listen(createWebServer({ open }), port),
+  scanOrganization: (input) => scanOrganization(input, { fetch, token }),
+  serve: (port) => listen(createWebServer({
+    open,
+    scanOrganization: (input, page) => scanOrganization(input, { fetch, token }, page),
+  }), port),
   print: (text) => console.log(text),
   error: (text) => console.error(text),
 });
