@@ -1,7 +1,9 @@
 # Skill Atlas
 
-Every agent skill in a repository: `./skill-atlas scan` finds each `SKILL.md` and prints its name,
-description and link.
+Project skills in a repository: `./skill-atlas scan` finds `SKILL.md` files under the approved
+skill roots and prints their name, description and link. Exact normalized copies are combined only
+when a complete path listing confirms there are no companion files or recognized local resources;
+their alternate links are shown as well.
 
 ```console
 $ npm ci

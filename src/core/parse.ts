@@ -27,7 +27,13 @@ export function parseSkill(text: string): ParsedSkill {
   const document = parseDocument(`\n${lines.slice(1, end).join('\n')}`);
   const [error] = document.errors;
   if (error) return fallback(`malformed front matter: ${error.message.split('\n')[0].replace(/:$/, '')}`, body);
-  const data: unknown = document.toJS();
+  let data: unknown;
+  try {
+    data = document.toJS();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return fallback(`malformed front matter: ${message}`, body);
+  }
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
     return fallback('front matter is not a mapping', body);
   }

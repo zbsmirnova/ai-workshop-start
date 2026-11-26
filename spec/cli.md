@@ -7,6 +7,8 @@ Prints the result **at once**; *nothing is stored*.
 JetBrains/kotlin · 6 skills
 build-tools-bump-gradle-api — Bumps the Gradle API…
   https://github.com/JetBrains/kotlin/blob/<commit>/…
+  also: https://github.com/JetBrains/kotlin/blob/<commit>/…
 ```
-- Sorted by **name**; the description's *first sentence*
-- `also in <paths>` for copies; warnings go to *stderr*
+- One entry per verified equivalent [project skill](analysis.md#what-counts-as-a-skill); verified alternate paths print as `also:` links
+- IDs use the primary path; sorted by **name**, then primary path; the description's *first sentence*
+- Warnings go to *stderr*
