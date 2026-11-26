@@ -18,10 +18,10 @@
   #filter:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   #count { position: absolute; right: 8px; top: 50%; translate: 0 -50%; padding: 3px 14px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
   mark { background: #f6d476; color: #222; border-radius: 4px; padding: 1px 2px; }
-  #skills.filtering .name { display: inline; font-family: ui-monospace, monospace; }
-  #skills.filtering .description { display: inline; margin-left: 8px; }
-  #skills.filtering li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #skills.filtering .link { display: none; }
+  #skills.filtering .skill .name { display: inline; font-family: ui-monospace, monospace; }
+  #skills.filtering .skill .description { display: inline; margin-left: 8px; }
+  #skills.filtering li.skill { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #skills.filtering .skill .link { display: none; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
   button:disabled { opacity: .6; cursor: progress; }
   main { display: grid; grid-template-columns: minmax(260px, 2fr) 3fr; min-height: 0; }
@@ -32,6 +32,14 @@
   li { padding: 10px 24px; cursor: pointer; border-left: 3px solid transparent; }
   li:hover { background: #8881; }
   li[aria-selected="true"] { border-left-color: var(--accent); background: #8882; }
+  #badge { align-self: center; padding: 4px 12px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  #progress { height: 6px; margin-top: 8px; border-radius: 3px; background: #8883; overflow: hidden; }
+  #bar { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  #digest { padding: 0 24px 4px; color: var(--muted); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  li.repo { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; font-family: ui-monospace, monospace; }
+  li.repo .count { color: var(--accent); white-space: nowrap; }
+  li.more { color: var(--accent); font-weight: 600; }
+  li.skill.nested { padding-left: 40px; }
   .name { font-weight: 600; }
   .description { color: var(--muted); font-size: 14px; }
   .link { display: block; font-size: 12px; overflow-wrap: anywhere; }
@@ -49,9 +57,11 @@
 <header>
   <h1>Skill Atlas</h1>
   <form id="form">
-    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo or a local directory" aria-label="Repository link" required autofocus>
+    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo, an owner, or a local directory" aria-label="Repository link" required autofocus>
+    <span id="badge" hidden></span>
     <button id="scan" type="submit">Scan</button>
   </form>
+  <div id="progress" hidden><div id="bar"></div></div>
   <div id="filterBox">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
     <input id="filter" type="search" placeholder="Filter the skills" aria-label="Filter skills">
@@ -62,6 +72,7 @@
   <section id="list">
     <div id="error" role="alert" hidden></div>
     <div id="summary"></div>
+    <div id="digest" hidden></div>
     <ul id="skills"></ul>
     <ul id="warnings"></ul>
   </section>
@@ -87,6 +98,16 @@ const element = (tag, className, text) => {
 
 // The last rendered scan, for client-side filtering; null before and between scans.
 let current = null;
+// The selected skill's id, kept across filtering and progressive organization renders.
+let selectedId = null;
+// Grows on every new scan, so a stale page loop stops rendering.
+let scanId = 0;
+// Organization digest state: "+K more" expanded, and the repositories whose skills are open.
+let expandedAll = false;
+let expandedRepos = new Set();
+
+/** An owner URL, as in spec/organization.md: github.com plus exactly one path segment. */
+const OWNER_URL = /^(?:https?:\/\/)?(?:www\.)?github\.com\/[\w-]+\/?$/i;
 
 $('form').addEventListener('submit', (event) => {
   event.preventDefault();
@@ -95,19 +116,19 @@ $('form').addEventListener('submit', (event) => {
   scan(repo);
 });
 $('filter').addEventListener('input', () => {
-  if (!current) return;
   history.replaceState(null, '', address($('repo').value.trim()));
-  applyFilter();
+  if (current) applyFilter();
 });
 addEventListener('popstate', () => load());
 load();
 
 /** `?repo=<link>`, with `&filter=<words>` unless the filter is blank. */
 function address(repo) {
-  const params = new URLSearchParams({ repo });
+  const params = new URLSearchParams();
+  if (repo) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter);
-  return `?${params}`;
+  return params.size ? `?${params}` : location.pathname;
 }
 
 function load() {
@@ -121,9 +142,16 @@ function load() {
 
 function clear() {
   current = null;
+  selectedId = null;
+  expandedAll = false;
+  expandedRepos = new Set();
   $('error').hidden = true;
   $('count').hidden = true;
   $('summary').textContent = '';
+  $('digest').hidden = true;
+  $('badge').hidden = true;
+  $('progress').hidden = true;
+  $('bar').style.width = '0%';
   $('skills').replaceChildren();
   $('warnings').replaceChildren();
   show(undefined);
@@ -131,76 +159,200 @@ function clear() {
 
 async function scan(repo) {
   clear();
+  const id = ++scanId;
   $('scan').disabled = true;
   $('summary').textContent = 'Scanning…';
   try {
-    const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}`);
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error);
-    render(result);
+    if (OWNER_URL.test(repo)) await scanOrganization(repo, id);
+    else {
+      const result = await api(repo);
+      if (id !== scanId) return;
+      render({
+        mode: 'repository',
+        label: result.repository.id,
+        groups: [{ repository: result.repository, skills: result.skills }],
+        warnings: result.warnings,
+      });
+    }
   } catch (error) {
+    if (id !== scanId) return;
     $('summary').textContent = '';
     $('error').textContent = error.message;
     $('error').hidden = false;
   } finally {
-    $('scan').disabled = false;
+    if (id === scanId) $('scan').disabled = false;
   }
 }
 
-function render({ repository, skills, warnings }) {
-  current = { repository, skills };
-  $('skills').replaceChildren(...skills.map((skill) => {
-    const item = element('li');
-    item.tabIndex = 0;
-    item.setAttribute('role', 'option');
-    item.append(element('div', 'name', skill.name));
-    if (skill.description) item.append(element('div', 'description', skill.description));
-    for (const [index, href] of [skill.link, ...skill.alternateLinks].entries()) {
-      const link = element('a', 'link', index ? `also: ${href}` : href);
-      link.href = href;
-      link.target = '_blank';
-      link.rel = 'noreferrer';
-      link.addEventListener('click', (event) => event.stopPropagation());
-      item.append(link);
-    }
-    const select = () => {
-      for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
-      show(skill);
-    };
-    item.addEventListener('click', select);
-    item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
-    return item;
-  }));
-  $('warnings').replaceChildren(...warnings.map((warning) => element('li', '', `warning: ${warning}`)));
-  applyFilter();
+/** The listing alone first — the badge appears at once — then every page, appended as it arrives. */
+async function scanOrganization(repo, id) {
+  const listing = await api(repo, 0);
+  if (id !== scanId) return;
+  $('badge').textContent = count(listing.repositoryCount, 'repository', 'repositories');
+  $('badge').hidden = false;
+  $('progress').hidden = false;
+  const pages = [];
+  renderOrganizationPages(listing, pages, listing.pageCount > 0);
+  for (let page = 1; page <= listing.pageCount; page++) {
+    const next = await api(repo, page);
+    if (id !== scanId) return;
+    pages.push(next);
+    $('bar').style.width = `${(page / listing.pageCount) * 100}%`;
+    renderOrganizationPages(listing, pages, page < listing.pageCount);
+  }
+}
+
+async function api(repo, page) {
+  const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}${page === undefined ? '' : `&page=${page}`}`);
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error);
+  return result;
+}
+
+function renderOrganizationPages(listing, pages, loading) {
+  const sections = pages.flatMap((page) => page.repositories);
+  render({
+    mode: 'organization',
+    label: listing.organization.name,
+    repositoryCount: listing.repositoryCount,
+    groups: sections.map((section) => ({ repository: section.repository, skills: section.skills })),
+    warnings: [
+      ...listing.warnings,
+      ...pages.flatMap((page) => page.warnings),
+      ...sections.flatMap((section) => section.warnings.map((warning) => `${section.repository.id}: ${warning}`)),
+    ],
+    loading,
+  });
 }
 
 /**
- * Hides the skills the filter drops, shows an `M of N` count in the field and the header, redraws
- * the matching entries as compact rows with the matched words highlighted, and keeps a visible
- * selection.
+ * One list for both modes. A repository scan lists the skills flat; an organization is a digest:
+ * one row per repository with skills, its entries under it when the row is selected, and "+K more".
  */
-function applyFilter() {
-  const { repository, skills } = current;
-  const words = $('filter').value.toLowerCase().split(/\s+/).filter(Boolean);
-  const items = [...$('skills').children];
-  $('skills').classList.toggle('filtering', words.length > 0);
-  items.forEach((item, index) => {
-    item.hidden = !matches(skills[index], words);
-    renderEntry(item, skills[index], item.hidden ? [] : words);
-  });
-  const visible = items.filter((item) => !item.hidden);
-  const total = `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
-  $('summary').textContent = `${repository.id} · ${words.length ? `${visible.length} of ${total}` : total}`;
-  $('count').textContent = `${visible.length} of ${skills.length}`;
-  $('count').hidden = !words.length;
-  if (!visible.some((item) => item.getAttribute('aria-selected') === 'true')) {
-    if (visible.length) visible[0].click();
-    else {
-      for (const item of items) item.setAttribute('aria-selected', 'false');
-      show(undefined);
+function render(state) {
+  current = state;
+  state.rows = [];
+  for (const group of state.groups) {
+    let groupRow;
+    if (state.mode === 'organization') {
+      if (!group.skills.length) continue;
+      groupRow = { group, element: repoRow(group) };
+      state.rows.push(groupRow);
+    }
+    for (const skill of group.skills) {
+      state.rows.push({ group, groupRow, skill, element: skillItem(skill, state.mode === 'organization') });
     }
   }
+  const children = state.rows.map((row) => row.element);
+  if (state.mode === 'organization') {
+    state.more = element('li', 'more');
+    state.more.tabIndex = 0;
+    const expand = () => { expandedAll = true; applyFilter(); };
+    state.more.addEventListener('click', expand);
+    state.more.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); expand(); } });
+    children.push(state.more);
+  }
+  $('skills').replaceChildren(...children);
+  $('warnings').replaceChildren(...state.warnings.map((warning) => element('li', '', `warning: ${warning}`)));
+  applyFilter();
+}
+
+/** `<name>  ·  n skills`; selecting it opens the repository's skill entries under the row. */
+function repoRow(group) {
+  const row = element('li', 'repo');
+  row.tabIndex = 0;
+  row.append(element('span', 'name', group.repository.name), element('span', 'count'));
+  const toggle = () => {
+    const id = group.repository.id;
+    if (expandedRepos.has(id)) expandedRepos.delete(id);
+    else expandedRepos.add(id);
+    applyFilter();
+  };
+  row.addEventListener('click', toggle);
+  row.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } });
+  return row;
+}
+
+function skillItem(skill, nested) {
+  const item = element('li', nested ? 'skill nested' : 'skill');
+  item.tabIndex = 0;
+  item.setAttribute('role', 'option');
+  item.append(element('div', 'name', skill.name));
+  if (skill.description) item.append(element('div', 'description', skill.description));
+  for (const [index, href] of [skill.link, ...skill.alternateLinks].entries()) {
+    const link = element('a', 'link', index ? `also: ${href}` : href);
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.addEventListener('click', (event) => event.stopPropagation());
+    item.append(link);
+  }
+  const select = () => { selectedId = skill.id; applySelection(); };
+  item.addEventListener('click', select);
+  item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+  return item;
+}
+
+function count(n, one, many = `${one}s`) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/**
+ * Hides what the filter drops, counts the rest in the headers and the field's `M of N` badge,
+ * redraws the matching entries as compact rows with the matched words highlighted, and keeps a
+ * visible selection.
+ */
+function applyFilter() {
+  const filter = $('filter').value;
+  const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const skillRows = current.rows.filter((row) => row.skill);
+  for (const row of skillRows) row.matching = matches(row.skill, words);
+  $('skills').classList.toggle('filtering', words.length > 0);
+  for (const row of skillRows) renderEntry(row.element, row.skill, row.matching ? words : []);
+
+  if (current.mode === 'organization') {
+    // The digest: rows with matching skills, the first three unless "+K more" was selected.
+    const repoRows = current.rows.filter((row) => !row.skill);
+    const withSkills = repoRows.filter((row) => skillRows.some((other) => other.group === row.group && other.matching));
+    withSkills.forEach((row, index) => { row.truncated = !expandedAll && index >= 3; });
+    for (const row of repoRows) {
+      const matching = skillRows.filter((other) => other.group === row.group && other.matching).length;
+      row.element.hidden = !withSkills.includes(row) || row.truncated;
+      row.element.lastChild.textContent = count(matching, 'skill');
+    }
+    for (const row of skillRows) {
+      row.element.hidden = !(row.matching && row.groupRow && !row.groupRow.element.hidden
+        && expandedRepos.has(row.group.repository.id));
+    }
+    const truncated = withSkills.filter((row) => row.truncated).length;
+    $('digest').textContent = `${withSkills.length} with skills${truncated ? ', among them' : ''}`;
+    $('digest').hidden = false;
+    current.more.hidden = !truncated;
+    current.more.textContent = `+${truncated} more`;
+  } else {
+    for (const row of skillRows) row.element.hidden = !row.matching;
+  }
+
+  const shown = skillRows.filter((row) => row.matching).length;
+  const total = count(skillRows.length, 'skill');
+  const prefix = current.mode === 'organization'
+    ? `${current.label} · ${count(current.repositoryCount, 'repository', 'repositories')}`
+    : current.label;
+  $('summary').textContent =
+    `${prefix} · ${words.length ? `${shown} of ${total}` : total}${current.loading ? ' · scanning…' : ''}`;
+  $('count').textContent = `${shown} of ${skillRows.length}`;
+  $('count').hidden = !words.length;
+  applySelection();
+}
+
+/** The selected skill if it is still visible, else the first visible one, else nothing. */
+function applySelection() {
+  const rows = current.rows.filter((row) => row.skill);
+  const visible = rows.filter((row) => !row.element.hidden);
+  const selected = visible.find((row) => row.skill.id === selectedId) ?? visible[0];
+  selectedId = selected ? selected.skill.id : null;
+  for (const row of rows) row.element.setAttribute('aria-selected', String(row === selected));
+  show(selected && selected.skill);
 }
 
 /** The filter of spec/cli.md: every word in the name or description, a case-insensitive substring. */

@@ -4,11 +4,14 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import { skillLink } from './core/model.ts';
+import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
 import { scan, type ScanResult, type Source } from './core/scan.ts';
 
 export type WebOptions = {
   /** Opens what the user asked to scan. */
   open(input: string): Promise<Source>;
+  /** Scans one page of a GitHub owner's repositories; see spec/organization.md. */
+  scanOrganization?(input: string, page: number): Promise<OrganizationPage>;
 };
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
@@ -33,6 +36,18 @@ export function scanJson({ repository, skills, warnings }: ScanResult) {
   };
 }
 
+/** One page of an organization scan, each repository rendered like a repository scan. */
+export function organizationJson(result: OrganizationPage) {
+  return {
+    organization: result.organization,
+    repositoryCount: result.repositoryCount,
+    page: result.page,
+    pageCount: result.pageCount,
+    repositories: result.repositories.map(scanJson),
+    warnings: result.warnings,
+  };
+}
+
 export function createWebServer(options: WebOptions): Server {
   return createServer((request, response) => {
     handle(request, response, options).catch((error) => {
@@ -54,7 +69,7 @@ export function listen(server: Server, port: number): Promise<string> {
   });
 }
 
-async function handle(request: IncomingMessage, response: ServerResponse, { open }: WebOptions) {
+async function handle(request: IncomingMessage, response: ServerResponse, { open, scanOrganization }: WebOptions) {
   if (!LOCAL_HOSTS.has(hostname(request.headers.host ?? ''))) return send(response, 403, { error: 'Forbidden host' });
   const url = new URL(request.url ?? '/', 'http://localhost');
   if (request.method !== 'GET') return send(response, 404, { error: 'Not found' });
@@ -63,6 +78,11 @@ async function handle(request: IncomingMessage, response: ServerResponse, { open
   const repo = url.searchParams.get('repo')?.trim();
   if (!repo) return send(response, 400, { error: 'Enter a GitHub repository URL or a local directory' });
   try {
+    if (parseOwnerUrl(repo) && scanOrganization) {
+      const value = url.searchParams.get('page');
+      if (value !== null && !/^\d+$/.test(value)) return send(response, 400, { error: `Not a page: ${value}` });
+      return send(response, 200, organizationJson(await scanOrganization(repo, value === null ? 1 : Number(value))));
+    }
     send(response, 200, scanJson(await scan(await open(repo))));
   } catch (error) {
     if (!(error instanceof AtlasError)) throw error;
