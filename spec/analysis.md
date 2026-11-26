@@ -38,6 +38,8 @@ Any other path is not a project skill. For example:
 | `integration-tests/src/jvmTest/resources/skills/weather-retrieval/SKILL.md` | Excluded: test fixture outside the roots |
 | `SKILL.md`, `.agents/skills/SKILL.md`, `.agents/skills/group/shared/SKILL.md`, or `.agents/skills/shared/skill.md` | Excluded: none matches the exact path shape |
 
+The CLI end-to-end tests replay selected paths and front matter from [fixed repository snapshots](../tests/fixtures/README.md). Android covers an `agent/skills` workflow, MPS covers project copies with companion files versus a bundled plugin copy, and Koog covers project skills versus test fixtures. The tests require commit-pinned links and run without GitHub access.
+
 ## Edge cases
 - No matching files → a successful scan with zero skills
 - Local scans skip directories named `.git` or `node_modules` at any depth. Symlinks inside the repository are skipped, but a symlink passed as the scan root is followed.
