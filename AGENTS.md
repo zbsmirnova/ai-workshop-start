@@ -1,6 +1,8 @@
 # AGENTS.md
 ## Specs
 Read [./spec](spec/) first. Update it with the code.
+## Memory
+Read [./memory/MEMORY.md](memory/MEMORY.md) first. After each commit, run the `update-memory` skill: if the commit taught something durable the diff doesn't say (a gotcha, a decision and its why, a correction), save it to `memory/`; otherwise skip.
 ## Tests
 Integration tests for every case in the spec.
 ## Definition of done
