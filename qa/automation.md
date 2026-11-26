@@ -1,7 +1,13 @@
 # QA automation
 
-The Air automation that replaces the manual QA round. Create it in Air (Automations → New),
-schedule it (e.g. daily, or on pushes to `main`), and use **Run Now** to try it. Prompt:
+The Air automation that replaces the manual QA round. Create it in Air (Automations → New) and
+use **Run Now** to try it.
+
+- **Name:** Daily manual QA — Skill Atlas web view
+- **Schedule:** once per day, 07:00 UTC (so a regression report is waiting in the morning)
+- **Branch:** `main`
+
+Prompt:
 
 > Run the `manual-qa` skill on the current `main`: follow every script in `qa/`, record each run,
 > and produce `qa-report.md` with PASS/FAIL per script and a video for every script.
@@ -15,6 +21,8 @@ schedule it (e.g. daily, or on pushes to `main`), and use **Run Now** to try it.
 >   artifact (`manual-qa/videos/<id>.webm`) from this run's session artifacts.
 > - A driver/setup problem (browser missing, server did not start) is not a product failure: report
 >   it as `⚠ BLOCKED` in the summary and do not open a product issue for it.
+> - If a previously-failing script now passes and its `qa` issue is open, comment that it passed on
+>   this run with a link to the report — do not close it yourself.
 
 ## Why this shape
 
