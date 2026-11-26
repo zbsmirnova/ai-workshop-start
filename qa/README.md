@@ -31,3 +31,10 @@ preconditions: anything beyond the conventions above
 
 A script run ends **PASS** or **FAIL**, always with a screen recording of the run. A failure names
 the step, the expectation, and what was actually observed.
+
+## Deterministic twin
+
+Each script is also encoded as a deterministic Playwright test in [`e2e/`](../e2e) (`npm run e2e`):
+same fixture, fixed viewport and fonts, a video of every run, and pixel-exact screenshot baselines
+in `e2e/screenshots` compared on CI. The agent-driven skill stays for exploratory judgment; the e2e
+suite is the regression gate.
