@@ -1,8 +1,15 @@
 # Command line
-`./skill-atlas scan <GitHub URL | directory>`
+`./skill-atlas scan <GitHub URL | directory> [--filter <words>]`
 `./skill-atlas serve [--port <port>]`: the same scan in a local [web view](web.md).
 Prints the result **at once**; *nothing is stored*.
 `GITHUB_TOKEN`, optional: a higher GitHub rate limit.
+
+## Filter
+`--filter <words>` keeps only matching skills:
+- Each whitespace-separated word must appear in the skill's **name or description** (*AND*)
+- Case-insensitive **substring** match: `grad` matches `Gradle`
+- The header counts the *matching* skills; no matches → a successful scan with `· 0 skills`
+- A blank `--filter` value keeps every skill
 ## Output
 ```
 JetBrains/kotlin · 6 skills
