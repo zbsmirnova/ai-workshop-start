@@ -13,6 +13,8 @@ export type Source = {
   warnings: string[];
   /** The file's bytes, or undefined if it is not there. */
   read(path: string): Promise<Uint8Array | undefined>;
+  /** When the file was last modified, or undefined if the source cannot tell. */
+  modified?(path: string): Promise<Date | undefined>;
 };
 
 export type ScanResult = { repository: Repository; skills: Skill[]; warnings: string[] };
@@ -48,6 +50,7 @@ export async function scan(source: Source): Promise<ScanResult> {
       description: result.parsed.description,
       commit: source.repository.commit,
       contents: result.contents,
+      updated: (await source.modified?.(result.path))?.toISOString().slice(0, 10),
     };
     skills.push(skill);
     if (canVerifyDependencies) equivalent.set(normalized, skill);
