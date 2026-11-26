@@ -10,6 +10,13 @@ REV=1755637
 DEST=${CHROMIUM_DIR:-/opt/browsers}
 SUDO=$(command -v sudo || true)
 
+export DEBIAN_FRONTEND=noninteractive
+$SUDO apt-get update -qq
+$SUDO apt-get install -y -qq unzip ffmpeg fontconfig fonts-liberation fonts-dejavu-core \
+  libnspr4 libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libxkbcommon0 \
+  libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
+  libasound2t64 libatspi2.0-0t64 >/dev/null
+
 if [ ! -x "$DEST/chrome-linux/chrome" ]; then
   $SUDO mkdir -p "$DEST"
   curl -fsSL -o /tmp/chrome-linux.zip \
@@ -17,13 +24,6 @@ if [ ! -x "$DEST/chrome-linux/chrome" ]; then
   $SUDO unzip -q -o /tmp/chrome-linux.zip -d "$DEST"
   rm /tmp/chrome-linux.zip
 fi
-
-export DEBIAN_FRONTEND=noninteractive
-$SUDO apt-get update -qq
-$SUDO apt-get install -y -qq ffmpeg fontconfig fonts-liberation fonts-dejavu-core \
-  libnspr4 libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libxkbcommon0 \
-  libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
-  libasound2t64 libatspi2.0-0t64 >/dev/null
 
 # Pin every font family the page can ask for (system-ui, sans-serif, ui-monospace, …) to the
 # Liberation fonts: different machines resolve the generic families to different fonts, and a
