@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Atlas</title>
+<style>
+  :root { color-scheme: light dark; --border: #8884; --muted: #888; --accent: #2f6feb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0 0 12px; font-size: 18px; }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
+  button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: progress; }
+  main { display: grid; grid-template-columns: minmax(260px, 2fr) 3fr; min-height: 0; }
+  #list { border-right: 1px solid var(--border); padding: 12px 0; }
+  #summary { padding: 0 24px 8px; font-weight: 600; }
+  #error { margin: 16px 24px; color: #d33; white-space: pre-wrap; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 10px 24px; cursor: pointer; border-left: 3px solid transparent; }
+  li:hover { background: #8881; }
+  li[aria-selected="true"] { border-left-color: var(--accent); background: #8882; }
+  .name { font-weight: 600; }
+  .description { color: var(--muted); font-size: 14px; }
+  .link { display: block; font-size: 12px; overflow-wrap: anywhere; }
+  #warnings { margin: 12px 24px; color: #b80; font-size: 13px; }
+  #warnings li { padding: 2px 0; cursor: default; border: 0; background: none; }
+  #skill { padding: 16px 24px; min-width: 0; }
+  #skill h2 { margin: 0 0 8px; font-size: 16px; }
+  pre { margin: 0 0 12px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 ui-monospace, monospace; }
+  #frontMatter { background: #8881; }
+  .placeholder { color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Skill Atlas</h1>
+  <form id="form">
+    <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo or a local directory" aria-label="Repository link" required autofocus>
+    <button id="scan" type="submit">Scan</button>
+  </form>
+</header>
+<main>
+  <section id="list">
+    <div id="error" role="alert" hidden></div>
+    <div id="summary"></div>
+    <ul id="skills"></ul>
+    <ul id="warnings"></ul>
+  </section>
+  <section id="skill">
+    <p class="placeholder" id="placeholder">Scan a repository, then select a skill to see its SKILL.md.</p>
+    <div id="details" hidden>
+      <h2 id="title"></h2>
+      <a id="link" class="link" target="_blank" rel="noreferrer"></a>
+      <pre id="frontMatter" hidden></pre>
+      <pre id="body"></pre>
+    </div>
+  </section>
+</main>
+<script>
+// Everything from the repository goes in with textContent: a SKILL.md is untrusted text.
+const $ = (id) => document.getElementById(id);
+const element = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+$('form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const repo = $('repo').value.trim();
+  history.pushState(null, '', `?repo=${encodeURIComponent(repo)}`);
+  scan(repo);
+});
+addEventListener('popstate', () => load());
+load();
+
+function load() {
+  const repo = new URLSearchParams(location.search).get('repo') ?? '';
+  $('repo').value = repo;
+  if (repo) scan(repo);
+  else clear();
+}
+
+function clear() {
+  $('error').hidden = true;
+  $('summary').textContent = '';
+  $('skills').replaceChildren();
+  $('warnings').replaceChildren();
+  show(undefined);
+}
+
+async function scan(repo) {
+  clear();
+  $('scan').disabled = true;
+  $('summary').textContent = 'Scanning…';
+  try {
+    const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    render(result);
+  } catch (error) {
+    $('summary').textContent = '';
+    $('error').textContent = error.message;
+    $('error').hidden = false;
+  } finally {
+    $('scan').disabled = false;
+  }
+}
+
+function render({ repository, skills, warnings }) {
+  $('summary').textContent = `${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
+  $('skills').replaceChildren(...skills.map((skill) => {
+    const item = element('li');
+    item.tabIndex = 0;
+    item.setAttribute('role', 'option');
+    item.append(element('div', 'name', skill.name));
+    if (skill.description) item.append(element('div', 'description', skill.description));
+    for (const [index, href] of [skill.link, ...skill.alternateLinks].entries()) {
+      const link = element('a', 'link', index ? `also: ${href}` : href);
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noreferrer';
+      link.addEventListener('click', (event) => event.stopPropagation());
+      item.append(link);
+    }
+    const select = () => {
+      for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
+      show(skill);
+    };
+    item.addEventListener('click', select);
+    item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+    return item;
+  }));
+  $('warnings').replaceChildren(...warnings.map((warning) => element('li', '', `warning: ${warning}`)));
+  if (skills.length) $('skills').firstElementChild.click();
+}
+
+function show(skill) {
+  $('placeholder').hidden = Boolean(skill);
+  $('details').hidden = !skill;
+  if (!skill) return;
+  $('title').textContent = skill.name;
+  $('link').textContent = skill.path;
+  $('link').href = skill.link;
+  const { frontMatter, body } = split(skill.contents);
+  $('frontMatter').hidden = !frontMatter;
+  $('frontMatter').textContent = frontMatter;
+  $('body').textContent = body;
+}
+
+/** The front matter between the leading `---` lines, and the instructions after it. */
+function split(contents) {
+  const match = /^\s*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/.exec(contents);
+  return match ? { frontMatter: match[1], body: match[2].replace(/^\s*\n/, '') } : { frontMatter: '', body: contents };
+}
+</script>
+</body>
+</html>

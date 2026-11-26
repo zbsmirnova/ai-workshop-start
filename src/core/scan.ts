@@ -47,6 +47,7 @@ export async function scan(source: Source): Promise<ScanResult> {
       name: result.parsed.name ?? result.name,
       description: result.parsed.description,
       commit: source.repository.commit,
+      contents: result.contents,
     };
     skills.push(skill);
     if (canVerifyDependencies) equivalent.set(normalized, skill);
