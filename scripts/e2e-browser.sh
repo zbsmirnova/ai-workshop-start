@@ -26,7 +26,7 @@ $SUDO apt-get install -y -qq ffmpeg fontconfig fonts-liberation fonts-dejavu-cor
   libasound2t64 libatspi2.0-0t64 >/dev/null
 
 # Playwright records video through its own ffmpeg build; point it at the system one.
-FFREV=$(node -e "const b=require('playwright-core/browsers.json');console.log(b.browsers.find(x=>x.name==='ffmpeg').revision)")
+FFREV=$(node -e "const b=require('./node_modules/playwright-core/browsers.json');console.log(b.browsers.find(x=>x.name==='ffmpeg').revision)")
 mkdir -p "$HOME/.cache/ms-playwright/ffmpeg-$FFREV"
 ln -sf "$(command -v ffmpeg)" "$HOME/.cache/ms-playwright/ffmpeg-$FFREV/ffmpeg-linux"
 
