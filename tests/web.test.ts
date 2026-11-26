@@ -347,6 +347,23 @@ test('the page: the filter field filters live, client-side, and keeps its value 
   assert.equal(new URLSearchParams(window.location.search).get('repo'), FIXTURE);
 });
 
+test('the page: a filter typed before a scan is kept in the address and applied by the next scan', async (t) => {
+  const { window, document, text, settled } = await page(t, '/');
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  filter.value = 'commit style';
+  filter.dispatchEvent(new window.Event('input'));
+  assert.equal(new URLSearchParams(window.location.search).get('filter'), 'commit style');
+
+  (document.getElementById('repo') as HTMLInputElement).value = FIXTURE;
+  document.getElementById('form')!.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await settled();
+  assert.equal(text('#summary'), 'fixture · 1 of 3 skills');
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li:not([hidden]) .name')].map((name) => name.textContent),
+    ['code-style'],
+  );
+});
+
 test('the page: an owner URL loads every page and shows repository sections', async (t) => {
   const { document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/BigOrg')}`);
   assert.equal(text('#summary'), `BigOrg · ${BIG_ORG_SIZE} repositories · 1 skill`);

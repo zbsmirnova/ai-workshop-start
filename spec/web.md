@@ -11,7 +11,7 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 - Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text
 - Warnings under the list; errors as a clear message in place of the result
 - The field's value is kept in the address as `?repo=<link>`; opening such an address scans it
-- The filter's value is kept in the address as `?filter=<words>`; opening such an address applies it after the scan. A blank filter keeps every skill and drops the parameter.
+- The filter's value is kept in the address as `?filter=<words>`, even before any scan; opening such an address, or scanning with it typed, applies it once the scan shows its skills. A blank filter keeps every skill and drops the parameter.
 - Repository text is shown as text, never as HTML
 
 ## API

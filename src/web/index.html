@@ -88,19 +88,19 @@ $('form').addEventListener('submit', (event) => {
   scan(repo);
 });
 $('filter').addEventListener('input', () => {
-  if (!current) return;
   history.replaceState(null, '', address($('repo').value.trim()));
-  applyFilter();
+  if (current) applyFilter();
 });
 addEventListener('popstate', () => load());
 load();
 
 /** `?repo=<link>`, with `&filter=<words>` unless the filter is blank. */
 function address(repo) {
-  const params = new URLSearchParams({ repo });
+  const params = new URLSearchParams();
+  if (repo) params.set('repo', repo);
   const filter = $('filter').value;
   if (filter.trim()) params.set('filter', filter);
-  return `?${params}`;
+  return params.size ? `?${params}` : location.pathname;
 }
 
 function load() {
