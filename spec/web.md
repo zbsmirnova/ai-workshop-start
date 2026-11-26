@@ -5,11 +5,13 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 
 ## Page
 - A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button
-- The header: `<owner>/<repo> · N skills`
+- A **filter field**: filters the shown skills *live*, client-side, with the [CLI filter rules](cli.md#filter); no re-scan
+- The header: `<owner>/<repo> · N skills`; with an active filter, `<owner>/<repo> · M of N skills`
 - One entry per skill, in the scan order: **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
 - Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text
 - Warnings under the list; errors as a clear message in place of the result
 - The field's value is kept in the address as `?repo=<link>`; opening such an address scans it
+- The filter's value is kept in the address as `?filter=<words>`; opening such an address applies it after the scan. A blank filter keeps every skill and drops the parameter.
 - Repository text is shown as text, never as HTML
 
 ## API
