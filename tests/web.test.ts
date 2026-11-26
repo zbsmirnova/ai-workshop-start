@@ -158,11 +158,22 @@ test('the API pages an organization 20 repositories at a time', async (t) => {
   assert.equal(beyond.status, 200);
   assert.deepEqual(beyond.body.repositories, []);
 
-  for (const page of ['0', 'abc', '-1']) {
+  for (const page of ['abc', '-1', '1.5']) {
     const response = await fetch(`${base}/api/scan?repo=${encodeURIComponent('https://github.com/BigOrg')}&page=${page}`);
     assert.equal(response.status, 400, page);
     assert.deepEqual(await response.json(), { error: `Not a page: ${page}` });
   }
+});
+
+test('the API answers page=0 with the listing alone, at once and without scanning', async (t) => {
+  const base = await serve(t);
+  const listing = await scanApi(base, 'https://github.com/BigOrg', 0);
+  assert.equal(listing.status, 200);
+  assert.equal(listing.body.page, 0);
+  assert.equal(listing.body.pageCount, 2);
+  assert.equal(listing.body.repositoryCount, BIG_ORG_SIZE);
+  assert.deepEqual(listing.body.repositories, []);
+  assert.deepEqual(listing.body.warnings, []);
 });
 
 test('an unknown owner → 400 with the clear message', async (t) => {
@@ -364,35 +375,59 @@ test('the page: a filter typed before a scan is kept in the address and applied 
   );
 });
 
-test('the page: an owner URL loads every page and shows repository sections', async (t) => {
+/** The visible digest rows as `[name, count]` pairs. */
+function digestRows(document: Document): [string, string][] {
+  return [...document.querySelectorAll<HTMLElement>('#skills > li.repo:not([hidden])')]
+    .map((row) => [row.querySelector('.name')?.textContent ?? '', row.querySelector('.count')?.textContent ?? '']);
+}
+
+test('the page: an owner URL shows the badge at once, a progress bar, and the digest', async (t) => {
   const { document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/BigOrg')}`);
+  assert.equal(document.getElementById('badge')?.hidden, false);
+  assert.equal(text('#badge'), `${BIG_ORG_SIZE} repositories`);
+  assert.equal(document.getElementById('progress')?.hidden, false);
+  assert.equal((document.getElementById('bar') as HTMLElement).style.width, '100%');
   assert.equal(text('#summary'), `BigOrg · ${BIG_ORG_SIZE} repositories · 1 skill`);
-  assert.deepEqual(
-    [...document.querySelectorAll('#skills > li.repo')].map((heading) => heading.textContent),
-    ['BigOrg/r24 · 1 skill'],
-  );
-  assert.equal(text('#skills li.skill .name'), 'finale');
-  assert.equal(text('#skills li.skill .link'), 'https://github.com/BigOrg/r24/blob/commit-r24/.claude/skills/finale/SKILL.md');
+  assert.equal(text('#digest'), '1 with skills');
+  assert.deepEqual(digestRows(document), [['r24', '1 skill']]);
+  // The entries stay closed until the row is selected; then its skill opens the SKILL.md.
+  assert.equal(document.querySelectorAll('#skills > li.skill:not([hidden])').length, 0);
+  assert.equal(document.getElementById('details')?.hidden, true);
+  document.querySelector<HTMLElement>('#skills > li.repo:not([hidden])')!.click();
+  assert.equal(text('#skills li.skill:not([hidden]) .name'), 'finale');
+  assert.equal(text('#skills li.skill:not([hidden]) .link'), 'https://github.com/BigOrg/r24/blob/commit-r24/.claude/skills/finale/SKILL.md');
   assert.equal(text('#title'), 'finale');
 });
 
-test('the page: the filter counts matching skills across the organization and hides empty sections', async (t) => {
+test('the page: the digest shows three rows, then "+K more" expands every row', async (t) => {
+  const { document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/Many')}`);
+  assert.equal(text('#digest'), '5 with skills, among them');
+  assert.deepEqual(digestRows(document), [['apple', '1 skill'], ['berry', '1 skill'], ['cedar', '1 skill']]);
+  const more = document.querySelector<HTMLElement>('#skills > li.more')!;
+  assert.equal(more.hidden, false);
+  assert.equal(more.textContent, '+2 more');
+  more.click();
+  assert.equal(text('#digest'), '5 with skills');
+  assert.deepEqual(digestRows(document).map(([name]) => name), ['apple', 'berry', 'cedar', 'dates', 'elder']);
+  assert.equal(document.querySelector<HTMLElement>('#skills > li.more')?.hidden, true);
+});
+
+test('the page: the filter counts matching skills across the organization and drops empty rows', async (t) => {
   const { window, document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/Acme')}`);
+  assert.equal(text('#badge'), '4 repositories');
   assert.equal(text('#summary'), 'Acme · 4 repositories · 3 skills');
-  assert.deepEqual(
-    [...document.querySelectorAll('#skills > li.repo')].map((heading) => heading.textContent),
-    ['Acme/tools · 1 skill', 'Acme/widgets · 2 skills'],
-  );
+  assert.equal(text('#digest'), '2 with skills');
+  assert.deepEqual(digestRows(document), [['tools', '1 skill'], ['widgets', '2 skills']]);
   assert.match(text('#warnings'), /warning: Acme\/broken: Repository not found: https:\/\/github\.com\/Acme\/broken/);
 
   const filter = document.getElementById('filter') as HTMLInputElement;
   filter.value = 'paint';
   filter.dispatchEvent(new window.Event('input'));
   assert.equal(text('#summary'), 'Acme · 4 repositories · 1 of 3 skills');
-  assert.deepEqual(
-    [...document.querySelectorAll<HTMLElement>('#skills > li.repo:not([hidden])')].map((heading) => heading.textContent),
-    ['Acme/widgets · 1 skill'],
-  );
+  assert.equal(text('#digest'), '1 with skills');
+  assert.deepEqual(digestRows(document), [['widgets', '1 skill']]);
+
+  document.querySelector<HTMLElement>('#skills > li.repo:not([hidden])')!.click();
   assert.deepEqual(
     [...document.querySelectorAll('#skills > li.skill:not([hidden]) .name')].map((name) => name.textContent),
     ['paint'],

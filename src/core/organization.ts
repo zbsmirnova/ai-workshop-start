@@ -16,7 +16,7 @@ export type OrganizationPage = {
   organization: { name: string; url: string };
   /** The owner's repositories, forks and archived ones skipped. */
   repositoryCount: number;
-  /** 1-based; an unpaged scan answers page 1. */
+  /** 1-based; an unpaged scan answers page 1; page 0 is the listing alone, nothing scanned. */
   page: number;
   pageCount: number;
   /** The scanned slice, by repository name, including repositories with zero skills. */
@@ -39,7 +39,8 @@ export async function scanOrganization(input: string, options: GitHubOptions, pa
   const owner = parseOwnerUrl(input);
   if (!owner) throw new AtlasError(`Not a GitHub owner URL: ${input}`);
   const names = await listRepositories(owner, options);
-  const slice = page === undefined ? names : names.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Page 0 is the listing alone, at once and without scanning; see spec/organization.md.
+  const slice = page === undefined ? names : page === 0 ? [] : names.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const results: (ScanResult | undefined)[] = new Array<ScanResult | undefined>(slice.length);
   const failures: (string | undefined)[] = new Array<string | undefined>(slice.length);
   let next = 0;
