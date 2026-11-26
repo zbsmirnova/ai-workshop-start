@@ -14,7 +14,7 @@ export type Context = {
 
 const usage = `Usage: skill-atlas <command>
 
-  scan <GitHub URL | directory>   find every SKILL.md in a repository and print it
+  scan <GitHub URL | directory>   find project skills in a repository and print them
   help                            show this help`;
 
 /** Runs one command; returns its exit code. */
@@ -39,13 +39,13 @@ async function scanCommand(args: string[], context: Context) {
   for (const warning of result.warnings) context.error(`warning: ${warning}`);
 }
 
-/** `<owner>/<repo> · N skills`, then each skill's name, first sentence and link. */
+/** `<owner>/<repo> · N skills`, then each skill's name, first sentence and links. */
 function printRepository(repository: Repository, skills: Skill[], { print }: Context) {
   print(`${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`);
   for (const skill of skills) {
     print(skill.description ? `${skill.name} — ${firstSentence(skill.description)}` : skill.name);
     print(`  ${skillLink(repository, skill)}`);
-    if (skill.copies.length > 0) print(`  also in ${skill.copies.join(', ')}`);
+    for (const path of skill.alternatePaths) print(`  also: ${skillLink(repository, { ...skill, path })}`);
   }
 }
 

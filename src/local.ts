@@ -20,6 +20,7 @@ export async function openDirectory(input: string): Promise<Source> {
   return {
     repository: { id: name, organization: 'local', name, url: pathToFileURL(root).href, commit: '' },
     paths,
+    pathsComplete: true,
     warnings: [],
     read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
   };

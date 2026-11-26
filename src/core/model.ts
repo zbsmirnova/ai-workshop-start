@@ -10,18 +10,19 @@ export type Repository = {
   commit: string;
 };
 
-/** One skill. Its link is derived, by `skillLink`. */
+/** One skill, identified by its selected SKILL.md path, with verified equivalent copies. */
 export type Skill = {
-  /** `repo:path`, for example `JetBrains/kotlin:.claude/skills/x/SKILL.md`. */
+  /** `repo:path`, for example `JetBrains/kotlin:.claude/skills/build-tools/SKILL.md`. */
   id: string;
   repository: string;
+  /** The primary path, chosen by approved-root priority. */
   path: string;
+  /** Other paths whose normalized instructions and metadata were verified as equivalent. */
+  alternatePaths: string[];
   name: string;
   description: string;
   /** The scanned commit, the one the link pins; empty for a local directory. */
   commit: string;
-  /** The same skill in other agents' folders. */
-  copies: string[];
 };
 
 /**
