@@ -4,7 +4,7 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 `GITHUB_TOKEN`, optional, is read by the server and never sent to the page.
 
 ## Page
-- A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button
+- A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button; an owner URL runs an [organization scan](organization.md)
 - A **filter field**: filters the shown skills *live*, client-side, with the [CLI filter rules](cli.md#filter); no re-scan
 - The header: `<owner>/<repo> · N skills`; with an active filter, `<owner>/<repo> · M of N skills`
 - One entry per skill, in the scan order: **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links

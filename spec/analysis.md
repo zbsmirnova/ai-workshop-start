@@ -1,6 +1,6 @@
 # Repository analysis
 ## Input
-A **GitHub repository** URL, or a local directory
+A **GitHub repository** URL, or a local directory. An owner URL without a repository is an [organization scan](organization.md).
 ## Output
 One entry per project skill: **name**, **description**, **link**, and its **SKILL.md** contents
 ## Architecture
