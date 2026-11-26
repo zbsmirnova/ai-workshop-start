@@ -1,0 +1,69 @@
+# Visual e2e tests: the qa/ flows as Playwright tests with pixel-exact screenshot comparison.
+# The browser is pinned (scripts/e2e-browser.sh) so the committed baselines in e2e/screenshots —
+# made on Linux, same as this runner — compare pixel-for-pixel. A changed pixel fails the check;
+# the diff images and a video of every test land in the uploaded artifact.
+#
+# Accepting a new baseline: run this workflow manually (Run workflow → update snapshots) on the
+# branch — it regenerates e2e/screenshots and pushes the result to the branch.
+name: e2e
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      update-snapshots:
+        description: Regenerate the screenshot baselines and push them to this branch
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  e2e:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.update-snapshots) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ./scripts/e2e-browser.sh
+      - run: npm run e2e
+      - name: Upload report, videos and diffs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-results
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+
+  update-snapshots:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.update-snapshots }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ./scripts/e2e-browser.sh
+      - run: npm run e2e -- --update-snapshots
+      - name: Commit the new baselines
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add e2e/screenshots
+          git diff --cached --quiet && echo "Baselines unchanged" && exit 0
+          git commit -m "e2e: accept new screenshot baselines"
+          git push

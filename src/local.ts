@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AtlasError } from './core/errors.ts';
@@ -23,6 +23,7 @@ export async function openDirectory(input: string): Promise<Source> {
     pathsComplete: true,
     warnings: [],
     read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
+    modified: (path) => stat(join(root, path)).then((info) => info.mtime, () => undefined),
   };
 }
 

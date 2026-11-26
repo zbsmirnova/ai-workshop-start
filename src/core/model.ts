@@ -25,6 +25,8 @@ export type Skill = {
   commit: string;
   /** The primary path's SKILL.md, as read. */
   contents: string;
+  /** When the skill was last updated, as `YYYY-MM-DD` (UTC); absent when the source cannot tell. */
+  updated?: string;
 };
 
 /**

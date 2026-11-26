@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { request as httpRequest, createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -103,6 +103,21 @@ test('the API scans a local directory: sorted skills, their contents, and the ma
   );
   assert.equal(body.warnings.length, 1);
   assert.match(body.warnings[0], /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('a local scan reports when each skill was last updated, from the file; a GitHub scan omits it', async (t) => {
+  const base = await serve(t);
+  const root = temporaryRepository(t);
+  writeSkill(root, '.claude/skills/commits/SKILL.md', EXAMPLE_SKILL);
+  const stamp = new Date('2026-01-02T03:04:05Z');
+  utimesSync(join(root, '.claude/skills/commits/SKILL.md'), stamp, stamp);
+  const local = await scanApi(base, root);
+  assert.equal(local.status, 200);
+  assert.equal(local.body.skills[0].updated, '2026-01-02');
+  const github = await scanApi(base, 'https://github.com/JetBrains/example');
+  assert.equal(github.status, 200);
+  assert.ok(github.body.skills.length > 0);
+  assert.ok(github.body.skills.every((skill: { updated?: string }) => !('updated' in skill)));
 });
 
 test('verified equivalents come with alternate links and the shared contents', async (t) => {
@@ -534,4 +549,11 @@ test('bad serve arguments → usage, exit code 1', () => {
 test('help lists serve', () => {
   const result = spawnSync(process.execPath, [CLI, 'help'], { encoding: 'utf8' });
   assert.match(result.stdout, /^ {2}serve \[--port <port>\] +the same, in a local web view \(port 4173 by default\)$/m);
+});
+
+test('the page shows when a skill was last updated', async (t) => {
+  const { document } = await page(t, `/?repo=${encodeURIComponent(FIXTURE)}`);
+  const updated = [...document.querySelectorAll('#skills .updated')].map((node) => node.textContent);
+  assert.equal(updated.length, 3);
+  for (const label of updated) assert.match(label!, /^updated \d{4}-\d{2}-\d{2}$/);
 });

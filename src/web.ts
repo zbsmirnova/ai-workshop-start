@@ -31,6 +31,7 @@ export function scanJson({ repository, skills, warnings }: ScanResult) {
       link: skillLink(repository, skill),
       alternateLinks: skill.alternatePaths.map((path) => skillLink(repository, { ...skill, path })),
       contents: skill.contents,
+      ...(skill.updated ? { updated: skill.updated } : {}),
     })),
     warnings,
   };
