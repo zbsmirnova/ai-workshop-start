@@ -257,6 +257,14 @@ test('the page: opening ?filter= applies it after the scan: hidden entries, M of
   assert.deepEqual(visible.map((item) => item.querySelector('.name')?.textContent), ['code-style']);
   assert.equal(visible[0].getAttribute('aria-selected'), 'true');
   assert.equal(text('#title'), 'code-style');
+  // The count badge in the field, and the matched words highlighted in a description snippet.
+  assert.equal(document.getElementById('count')?.hidden, false);
+  assert.equal(text('#count'), '1 of 3');
+  assert.deepEqual(
+    [...visible[0].querySelectorAll('.name mark, .description mark')].map((mark) => mark.textContent),
+    ['style', 'style', 'commit'],
+  );
+  assert.match(visible[0].querySelector('.description')?.textContent ?? '', /^….*committing.*/);
 });
 
 test('the page: the filter field filters live, client-side, and keeps its value in the address', async (t) => {
@@ -269,6 +277,8 @@ test('the page: the filter field filters live, client-side, and keeps its value 
 
   type('RELEASE');
   assert.equal(text('#summary'), 'fixture · 1 of 3 skills');
+  assert.equal(text('#count'), '1 of 3');
+  assert.equal(document.getElementById('skills')?.classList.contains('filtering'), true);
   assert.deepEqual(
     [...document.querySelectorAll('#skills > li:not([hidden]) .name')].map((name) => name.textContent),
     ['release-checklist'],
@@ -283,10 +293,17 @@ test('the page: the filter field filters live, client-side, and keeps its value 
   assert.equal(document.querySelectorAll('#skills > li[aria-selected="true"]').length, 0);
   assert.equal(document.getElementById('details')?.hidden, true);
 
-  // A blank filter keeps every skill and drops the parameter.
+  // A blank filter keeps every skill, restores the full entries, and drops the parameter.
   type('');
   assert.equal(text('#summary'), 'fixture · 3 skills');
+  assert.equal(document.getElementById('count')?.hidden, true);
+  assert.equal(document.getElementById('skills')?.classList.contains('filtering'), false);
   assert.equal(document.querySelectorAll('#skills > li:not([hidden])').length, 3);
+  assert.equal(document.querySelectorAll('#skills mark').length, 0);
+  assert.equal(
+    document.querySelector('#skills > li .description')?.textContent,
+    "Follow the project's code style. Use before committing Kotlin or Java changes.",
+  );
   assert.equal(new URLSearchParams(window.location.search).get('filter'), null);
   assert.equal(new URLSearchParams(window.location.search).get('repo'), FIXTURE);
 });

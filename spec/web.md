@@ -6,6 +6,7 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 ## Page
 - A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button
 - A **filter field**: filters the shown skills *live*, client-side, with the [CLI filter rules](cli.md#filter); no re-scan
+- With an active filter: the field shows an `M of N` **count badge**, and each matching entry collapses to its **name** and a short **description snippet** around the first match, with every matched word *highlighted*; clearing the filter restores the full entries
 - The header: `<owner>/<repo> · N skills`; with an active filter, `<owner>/<repo> · M of N skills`
 - One entry per skill, in the scan order: **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
 - Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text

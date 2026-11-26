@@ -12,7 +12,16 @@
   h1 { margin: 0 0 12px; font-size: 18px; }
   form { display: flex; gap: 8px; }
   input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; }
-  #filter { display: block; width: 100%; margin-top: 8px; }
+  #filterBox { position: relative; margin-top: 8px; }
+  #filterBox svg { position: absolute; left: 12px; top: 50%; translate: 0 -50%; width: 16px; height: 16px; color: var(--muted); pointer-events: none; }
+  #filter { display: block; width: 100%; padding: 10px 96px 10px 36px; border-radius: 12px; }
+  #filter:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  #count { position: absolute; right: 8px; top: 50%; translate: 0 -50%; padding: 3px 14px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 600; }
+  mark { background: #f6d476; color: #222; border-radius: 4px; padding: 1px 2px; }
+  #skills.filtering .name { display: inline; font-family: ui-monospace, monospace; }
+  #skills.filtering .description { display: inline; margin-left: 8px; }
+  #skills.filtering li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #skills.filtering .link { display: none; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; }
   button:disabled { opacity: .6; cursor: progress; }
   main { display: grid; grid-template-columns: minmax(260px, 2fr) 3fr; min-height: 0; }
@@ -43,7 +52,11 @@
     <input id="repo" name="repo" type="text" placeholder="https://github.com/owner/repo or a local directory" aria-label="Repository link" required autofocus>
     <button id="scan" type="submit">Scan</button>
   </form>
-  <input id="filter" type="search" placeholder="Filter skills by words" aria-label="Filter skills">
+  <div id="filterBox">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="filter" type="search" placeholder="Filter the skills" aria-label="Filter skills">
+    <span id="count" hidden></span>
+  </div>
 </header>
 <main>
   <section id="list">
@@ -109,6 +122,7 @@ function load() {
 function clear() {
   current = null;
   $('error').hidden = true;
+  $('count').hidden = true;
   $('summary').textContent = '';
   $('skills').replaceChildren();
   $('warnings').replaceChildren();
@@ -161,15 +175,25 @@ function render({ repository, skills, warnings }) {
   applyFilter();
 }
 
-/** Hides the skills the filter drops, counts the rest in the header, and keeps a visible selection. */
+/**
+ * Hides the skills the filter drops, shows an `M of N` count in the field and the header, redraws
+ * the matching entries as compact rows with the matched words highlighted, and keeps a visible
+ * selection.
+ */
 function applyFilter() {
   const { repository, skills } = current;
-  const filter = $('filter').value;
+  const words = $('filter').value.toLowerCase().split(/\s+/).filter(Boolean);
   const items = [...$('skills').children];
-  items.forEach((item, index) => { item.hidden = !matches(skills[index], filter); });
+  $('skills').classList.toggle('filtering', words.length > 0);
+  items.forEach((item, index) => {
+    item.hidden = !matches(skills[index], words);
+    renderEntry(item, skills[index], item.hidden ? [] : words);
+  });
   const visible = items.filter((item) => !item.hidden);
   const total = `${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
-  $('summary').textContent = `${repository.id} · ${filter.trim() ? `${visible.length} of ${total}` : total}`;
+  $('summary').textContent = `${repository.id} · ${words.length ? `${visible.length} of ${total}` : total}`;
+  $('count').textContent = `${visible.length} of ${skills.length}`;
+  $('count').hidden = !words.length;
   if (!visible.some((item) => item.getAttribute('aria-selected') === 'true')) {
     if (visible.length) visible[0].click();
     else {
@@ -180,11 +204,60 @@ function applyFilter() {
 }
 
 /** The filter of spec/cli.md: every word in the name or description, a case-insensitive substring. */
-function matches(skill, filter) {
+function matches(skill, words) {
   const name = skill.name.toLowerCase();
   const description = skill.description.toLowerCase();
-  return filter.toLowerCase().split(/\s+/).filter(Boolean)
-    .every((word) => name.includes(word) || description.includes(word));
+  return words.every((word) => name.includes(word) || description.includes(word));
+}
+
+/**
+ * The entry's text: the full name and description normally; while filtering, the matched words are
+ * highlighted and the description shrinks to a snippet around its first match.
+ */
+function renderEntry(item, skill, words) {
+  item.querySelector('.name').replaceChildren(...(words.length ? highlighted(skill.name, words) : [skill.name]));
+  const description = item.querySelector('.description');
+  if (!description) return;
+  if (!words.length) {
+    description.textContent = skill.description;
+    return;
+  }
+  const lower = skill.description.toLowerCase();
+  let first = -1;
+  let length = 0;
+  for (const word of words) {
+    const at = lower.indexOf(word);
+    if (at !== -1 && (first === -1 || at < first)) { first = at; length = word.length; }
+  }
+  if (first === -1) {
+    description.textContent = '';
+    return;
+  }
+  const start = Math.max(0, first - 20);
+  const end = Math.min(skill.description.length, first + length + 40);
+  const snippet = (start ? '…' : '') + skill.description.slice(start, end) + (end < skill.description.length ? '…' : '');
+  description.replaceChildren(...highlighted(snippet, words));
+}
+
+/** The text as nodes, each case-insensitive occurrence of a word wrapped in a safe `<mark>`. */
+function highlighted(text, words) {
+  const lower = text.toLowerCase();
+  const nodes = [];
+  let from = 0;
+  while (from < text.length) {
+    let at = -1;
+    let length = 0;
+    for (const word of words) {
+      const found = lower.indexOf(word, from);
+      if (found !== -1 && (at === -1 || found < at || (found === at && word.length > length))) { at = found; length = word.length; }
+    }
+    if (at === -1) break;
+    if (at > from) nodes.push(document.createTextNode(text.slice(from, at)));
+    nodes.push(element('mark', '', text.slice(at, at + length)));
+    from = at + length;
+  }
+  if (from < text.length) nodes.push(document.createTextNode(text.slice(from)));
+  return nodes;
 }
 
 function show(skill) {
