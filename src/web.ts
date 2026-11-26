@@ -80,7 +80,7 @@ async function handle(request: IncomingMessage, response: ServerResponse, { open
   try {
     if (parseOwnerUrl(repo) && scanOrganization) {
       const value = url.searchParams.get('page');
-      if (value !== null && !/^[1-9]\d*$/.test(value)) return send(response, 400, { error: `Not a page: ${value}` });
+      if (value !== null && !/^\d+$/.test(value)) return send(response, 400, { error: `Not a page: ${value}` });
       return send(response, 200, organizationJson(await scanOrganization(repo, value === null ? 1 : Number(value))));
     }
     send(response, 200, scanJson(await scan(await open(repo))));

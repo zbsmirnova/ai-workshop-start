@@ -87,7 +87,24 @@ for (let index = 0; index < BIG_ORG_SIZE; index++) {
   Object.assign(BIG_ORG, repository(`BigOrg/${name}`, `commit-${name}`, skills));
 }
 
-const github = replay({ ...EXAMPLE, ...ACME, ...BIG_ORG });
+/** Five repositories with one skill each: the digest truncates after three. */
+const MANY: Recording = {
+  'https://api.github.com/users/Many/repos?per_page=100&page=1': {
+    status: 200,
+    body: ['apple', 'berry', 'cedar', 'dates', 'elder'].map((name) => ({
+      full_name: `Many/${name}`,
+      fork: false,
+      archived: false,
+    })),
+  },
+};
+for (const name of ['apple', 'berry', 'cedar', 'dates', 'elder']) {
+  Object.assign(MANY, repository(`Many/${name}`, `${name}-commit`, {
+    [`.claude/skills/${name}-care/SKILL.md`]: `---\nname: ${name}-care\ndescription: Tend the ${name} grove.\n---\n# ${name}\n`,
+  }));
+}
+
+const github = replay({ ...EXAMPLE, ...ACME, ...BIG_ORG, ...MANY });
 
 /** What the CLI opens, with GitHub answering from EXAMPLE: with a token, through code search. */
 export function open(input: string) {

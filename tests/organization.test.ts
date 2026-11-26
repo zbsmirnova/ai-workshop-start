@@ -120,6 +120,28 @@ test('an owner with no repositories, or only forks and archived ones → 0 repos
   assert.deepEqual(stdout, ['Empty · 0 repositories · 0 skills']);
 });
 
+test('page 0 answers the listing alone, without scanning any repository', async () => {
+  // Only the listing is recorded: a scan attempt would surface as a "not recorded" warning.
+  const recording: Recording = {
+    'https://api.github.com/users/ListOnly/repos?per_page=100&page=1': {
+      status: 200,
+      body: [
+        { full_name: 'ListOnly/alpha', fork: false, archived: false },
+        { full_name: 'ListOnly/beta', fork: false, archived: false },
+      ],
+    },
+  };
+  const result = await scanOrganization('https://github.com/ListOnly', { fetch: replay(recording) }, 0);
+  assert.deepEqual(result, {
+    organization: { name: 'ListOnly', url: 'https://github.com/ListOnly' },
+    repositoryCount: 2,
+    page: 0,
+    pageCount: 1,
+    repositories: [],
+    warnings: [],
+  });
+});
+
 test('the repository listing fetches every page', async () => {
   const first = Array.from({ length: 100 }, (_, index) => ({ full_name: `Paged/fork-${index}`, fork: true, archived: false }));
   first[0] = { full_name: 'Paged/alpha', fork: false, archived: false };

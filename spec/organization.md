@@ -34,13 +34,27 @@ JetBrains/mps · 2 skills
 
 ## Web view
 - The repository field also accepts an owner URL; `?repo=` and `?filter=` work the same
-- The page loads the result **page by page** and appends repository sections as they arrive; while more pages load, the header ends with `· scanning…`
+- Submitting an owner URL fetches the **listing alone first** ([`page=0`](#api)): an `R repositories` **badge** appears by the field *at once*, before any repository is scanned
+- A **progress bar** under the field fills as pages arrive (`page / pageCount`), and the result is loaded **page by page**; the header still ends with `· scanning…` while more pages load
 - The header: `<owner> · R repositories · N skills`; with an active filter, `… · M of N skills`
-- Repository sections (`<owner>/<repo> · n skills`) and skill entries as in the CLI; a section header counts its *matching* skills and a section left with none is hidden
-- Selecting a skill shows its `SKILL.md`, as for one repository; warnings are prefixed with the repository id
+- The result is a **digest**, not full sections: a line `W with skills, among them` (just `W with skills` once every row shows), then one **row** per repository with a listed skill — its **name** and `n skills` — in repository-name order
+- The digest shows the first **three** rows, then `+K more`; selecting `+K more` expands every row
+- **Selecting a row** expands that repository's skill entries under it (name, description, links, as in a repository scan); selecting a skill shows its `SKILL.md`, as for one repository
+- The filter applies to every skill: rows and both counts use the *matching* skills, and a repository left with none disappears
+- Warnings under the digest, prefixed with the repository id; a single-repository scan is unchanged
+
+```
+[ github.com/JetBrains        142 repositories ]
+▓▓▓▓▓▓▓▓░░░░░░░░░░░░
+27 with skills, among them
+intellij-community                     38 skills
+MPS                                    41 skills
+kotlin                                  6 skills
++24 more
+```
 
 ### API
-`GET /api/scan?repo=<owner URL>[&page=<n>]` → `200`, JSON: one page of **20 repositories**, by name; `page` is 1-based, 1 by default:
+`GET /api/scan?repo=<owner URL>[&page=<n>]` → `200`, JSON: one page of **20 repositories**, by name; `page` is 1-based, 1 by default. `page=0` answers the **listing alone**, at once and without scanning: `repositoryCount` and `pageCount` as usual, `repositories` empty.
 ```json
 {
   "organization": { "name": "JetBrains", "url": "https://github.com/JetBrains" },
@@ -55,7 +69,7 @@ JetBrains/mps · 2 skills
 - *Nothing is stored*: each page request lists the repositories again and scans only its slice; a repository created or renamed between requests may shift pages
 - `repositories`: the page's repositories, by name, *including* those with zero skills; `skills` as in the [repository response](web.md#api). A repository whose scan failed is missing, with a top-level warning.
 - Top-level `warnings`: listing warnings and this page's failure warnings
-- A `page` past `pageCount` → `200` with empty `repositories`; a `page` that is not a positive integer → `400`
+- A `page` past `pageCount` → `200` with empty `repositories`; a `page` that is not a non-negative integer → `400`
 - Errors: the same `400`/`500` rules as a [repository scan](web.md#api)
 
 ## Edge cases
