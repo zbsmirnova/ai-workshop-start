@@ -11,20 +11,20 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test, type TestContext } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { createWebServer, listen } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, FIXTURE, open } from './helpers.ts';
+import { createWebServer, listen, type WebOptions } from '../src/web.ts';
+import { BIG_ORG_SIZE, CLI, EXAMPLE_COMMIT, FIXTURE, open, scanOrg } from './helpers.ts';
 
 const EXAMPLE_SKILL = '---\nname: commits\ndescription: Write commit messages the way this repository does. Use for every commit.\n---\n# Commits\n';
 
 /** A server with GitHub answering from tests/helpers.ts; closed after the test. */
-async function serve(t: TestContext, options = { open }): Promise<string> {
+async function serve(t: TestContext, options: WebOptions = { open, scanOrganization: scanOrg }): Promise<string> {
   const server = createWebServer(options);
   t.after(() => server.close());
   return listen(server, 0);
 }
 
-async function scanApi(base: string, repo: string) {
-  const response = await fetch(`${base}/api/scan?repo=${encodeURIComponent(repo)}`);
+async function scanApi(base: string, repo: string, page?: number) {
+  const response = await fetch(`${base}/api/scan?repo=${encodeURIComponent(repo)}${page === undefined ? '' : `&page=${page}`}`);
   return { status: response.status, type: response.headers.get('content-type'), body: await response.json() };
 }
 
@@ -117,6 +117,62 @@ test('verified equivalents come with alternate links and the shared contents', a
   assert.equal(body.skills[0].link, `${url}/.agents/skills/alpha/SKILL.md`);
   assert.deepEqual(body.skills[0].alternateLinks, [`${url}/.claude/skills/renamed/SKILL.md`]);
   assert.equal(body.skills[0].contents, contents);
+});
+
+test('the API answers an owner URL with one page: repositories by name, zero-skill ones included', async (t) => {
+  const base = await serve(t);
+  const result = await scanApi(base, 'https://github.com/Acme');
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.organization, { name: 'Acme', url: 'https://github.com/Acme' });
+  assert.equal(result.body.repositoryCount, 4);
+  assert.equal(result.body.page, 1);
+  assert.equal(result.body.pageCount, 1);
+  assert.deepEqual(
+    result.body.repositories.map((entry: { repository: { id: string }; skills: { name: string }[]; warnings: string[] }) =>
+      [entry.repository.id, entry.skills.map(({ name }) => name), entry.warnings]),
+    [
+      ['Acme/empty', [], []],
+      ['Acme/tools', ['deploy'], []],
+      ['Acme/widgets', ['assemble', 'paint'], []],
+    ],
+  );
+  assert.equal(
+    result.body.repositories[1].skills[0].link,
+    'https://github.com/Acme/tools/blob/tools-commit/.claude/skills/deploy/SKILL.md',
+  );
+  assert.deepEqual(result.body.warnings, ['Acme/broken: Repository not found: https://github.com/Acme/broken']);
+});
+
+test('the API pages an organization 20 repositories at a time', async (t) => {
+  const base = await serve(t);
+  const page1 = await scanApi(base, 'https://github.com/BigOrg');
+  assert.equal(page1.body.pageCount, 2);
+  assert.equal(page1.body.repositories.length, 20);
+
+  const page2 = await scanApi(base, 'https://github.com/BigOrg', 2);
+  assert.equal(page2.body.page, 2);
+  assert.equal(page2.body.repositories.length, BIG_ORG_SIZE - 20);
+  assert.deepEqual(page2.body.repositories.at(-1).skills.map(({ name }: { name: string }) => name), ['finale']);
+
+  const beyond = await scanApi(base, 'https://github.com/BigOrg', 3);
+  assert.equal(beyond.status, 200);
+  assert.deepEqual(beyond.body.repositories, []);
+
+  for (const page of ['0', 'abc', '-1']) {
+    const response = await fetch(`${base}/api/scan?repo=${encodeURIComponent('https://github.com/BigOrg')}&page=${page}`);
+    assert.equal(response.status, 400, page);
+    assert.deepEqual(await response.json(), { error: `Not a page: ${page}` });
+  }
+});
+
+test('an unknown owner → 400 with the clear message', async (t) => {
+  const base = await serve(t);
+  const result = await scanApi(base, 'https://github.com/not-answered-owner');
+  assert.equal(result.status, 400);
+  assert.equal(
+    result.body.error,
+    'Cannot reach GitHub: not recorded: https://api.github.com/users/not-answered-owner/repos?per_page=100&page=1',
+  );
 });
 
 test('a missing or blank repo → 400 with a message', async (t) => {
@@ -289,6 +345,59 @@ test('the page: the filter field filters live, client-side, and keeps its value 
   assert.equal(document.querySelectorAll('#skills > li:not([hidden])').length, 3);
   assert.equal(new URLSearchParams(window.location.search).get('filter'), null);
   assert.equal(new URLSearchParams(window.location.search).get('repo'), FIXTURE);
+});
+
+test('the page: a filter typed before a scan is kept in the address and applied by the next scan', async (t) => {
+  const { window, document, text, settled } = await page(t, '/');
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  filter.value = 'commit style';
+  filter.dispatchEvent(new window.Event('input'));
+  assert.equal(new URLSearchParams(window.location.search).get('filter'), 'commit style');
+
+  (document.getElementById('repo') as HTMLInputElement).value = FIXTURE;
+  document.getElementById('form')!.dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await settled();
+  assert.equal(text('#summary'), 'fixture · 1 of 3 skills');
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li:not([hidden]) .name')].map((name) => name.textContent),
+    ['code-style'],
+  );
+});
+
+test('the page: an owner URL loads every page and shows repository sections', async (t) => {
+  const { document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/BigOrg')}`);
+  assert.equal(text('#summary'), `BigOrg · ${BIG_ORG_SIZE} repositories · 1 skill`);
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li.repo')].map((heading) => heading.textContent),
+    ['BigOrg/r24 · 1 skill'],
+  );
+  assert.equal(text('#skills li.skill .name'), 'finale');
+  assert.equal(text('#skills li.skill .link'), 'https://github.com/BigOrg/r24/blob/commit-r24/.claude/skills/finale/SKILL.md');
+  assert.equal(text('#title'), 'finale');
+});
+
+test('the page: the filter counts matching skills across the organization and hides empty sections', async (t) => {
+  const { window, document, text } = await page(t, `/?repo=${encodeURIComponent('https://github.com/Acme')}`);
+  assert.equal(text('#summary'), 'Acme · 4 repositories · 3 skills');
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li.repo')].map((heading) => heading.textContent),
+    ['Acme/tools · 1 skill', 'Acme/widgets · 2 skills'],
+  );
+  assert.match(text('#warnings'), /warning: Acme\/broken: Repository not found: https:\/\/github\.com\/Acme\/broken/);
+
+  const filter = document.getElementById('filter') as HTMLInputElement;
+  filter.value = 'paint';
+  filter.dispatchEvent(new window.Event('input'));
+  assert.equal(text('#summary'), 'Acme · 4 repositories · 1 of 3 skills');
+  assert.deepEqual(
+    [...document.querySelectorAll<HTMLElement>('#skills > li.repo:not([hidden])')].map((heading) => heading.textContent),
+    ['Acme/widgets · 1 skill'],
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll('#skills > li.skill:not([hidden]) .name')].map((name) => name.textContent),
+    ['paint'],
+  );
+  assert.equal(text('#title'), 'paint');
 });
 
 test('the page: an error is a clear message in place of the result', async (t) => {

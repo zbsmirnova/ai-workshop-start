@@ -1,5 +1,6 @@
 # Command line
 `./skill-atlas scan <GitHub URL | directory> [--filter <words>]`
+A GitHub URL without a repository scans the whole [organization](organization.md).
 `./skill-atlas serve [--port <port>]`: the same scan in a local [web view](web.md).
 Prints the result **at once**; *nothing is stored*.
 `GITHUB_TOKEN`, optional: a higher GitHub rate limit.
