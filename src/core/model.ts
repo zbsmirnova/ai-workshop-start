@@ -23,6 +23,8 @@ export type Skill = {
   description: string;
   /** The scanned commit, the one the link pins; empty for a local directory. */
   commit: string;
+  /** The primary path's SKILL.md, as read. */
+  contents: string;
 };
 
 /**

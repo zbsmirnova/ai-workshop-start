@@ -1,0 +1,32 @@
+# Web view
+`./skill-atlas serve [--port <port>]` starts a local web view at `http://localhost:4173` (or the given port) and keeps running until stopped.
+It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is stored*.
+`GITHUB_TOKEN`, optional, is read by the server and never sent to the page.
+
+## Page
+- A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button
+- The header: `<owner>/<repo> · N skills`
+- One entry per skill, in the scan order: **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
+- Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text
+- Warnings under the list; errors as a clear message in place of the result
+- The field's value is kept in the address as `?repo=<link>`; opening such an address scans it
+- Repository text is shown as text, never as HTML
+
+## API
+`GET /api/scan?repo=<GitHub URL | directory>` → `200`, JSON:
+```json
+{
+  "repository": { "id": "JetBrains/example", "organization": "JetBrains", "name": "example", "url": "https://github.com/JetBrains/example", "commit": "<commit>" },
+  "skills": [{ "id": "…", "name": "…", "description": "…", "path": "…", "link": "…", "alternateLinks": ["…"], "contents": "<SKILL.md>" }],
+  "warnings": ["…"]
+}
+```
+- `contents`: the primary path's `SKILL.md` as read; verified equivalents have the same contents
+- A missing or blank `repo`, or a scan that fails with a clear message (unreachable repository, rate limit, …) → `400`, `{ "error": "<message>" }`
+- Any other failure → `500`, `{ "error": "Unexpected error: <message>" }`
+
+## Local only
+- The server listens on `127.0.0.1` only
+- A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` (any port) → `403`
+- `GET /` → the page; any other path or method → `404`
+- A port that is in use → a clear message, exit code 1

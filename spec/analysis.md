@@ -2,10 +2,10 @@
 ## Input
 A **GitHub repository** URL, or a local directory
 ## Output
-One entry per project skill: **name**, **description**, **link**
+One entry per project skill: **name**, **description**, **link**, and its **SKILL.md** contents
 ## Architecture
-Core: fetch → find → parse. CLI: a *thin client*.
-Skill: id = `repo:<selected path>`, display name, description, selected path, alternate paths, commit
+Core: fetch → find → parse. CLI and [web view](web.md): *thin clients*.
+Skill: id = `repo:<selected path>`, display name, description, selected path, alternate paths, commit, contents of the selected path's SKILL.md
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The display name: front matter, else the skill directory name
