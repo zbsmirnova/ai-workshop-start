@@ -1,6 +1,6 @@
 ---
 name: manual-qa
-description: Run the manual QA scripts in qa/ against the web view in a real browser — follow each script's steps, verify checkpoints on screenshots, and report PASS or FAIL per script with a screen recording. Use when asked to run QA, manual QA, or to check the web UI. Optional argument: one script id (e.g. 02-live-filter) to run only that script.
+description: "Run the manual QA scripts in qa/ against the web view in a real browser \u2014 follow each script's steps, verify checkpoints on screenshots, and report PASS or FAIL per script with a screen recording. Use when asked to run QA, manual QA, or to check the web UI. Optional argument: one script id (e.g. 02-live-filter) to run only that script."
 ---
 
 # Manual QA
@@ -32,7 +32,7 @@ by **looking at the screen**, and report PASS or FAIL per script — always with
 
 ## Running a script
 
-Scripts live in `qa/*.md` (skip `README.md`); run them in filename order, or only the one matching
+Scripts are the numbered `qa/[0-9][0-9]-*.md` files with `id` and `title` front matter (exclude process documents such as `README.md`, `automation.md`, and `red-agent.md`); run them in filename order, or only the one matching
 the argument. `qa/README.md` holds the shared conventions — read it first. For each script:
 
 1. Read the script. Write a small Node driver (in a temp dir, not the repo) using Playwright that:
