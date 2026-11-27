@@ -1,5 +1,35 @@
 # QA automation
 
+## Repository routing for all automations
+
+Select **`zbsmirnova/ai-workshop-start`** as the repository for QA, repair, review, and merge
+automations, with **`main`** as the base branch. The parent repository
+`ndkoval/ai-workshop-start` is not the target. Configure any repair integration to create its
+PR in this same fork. Repository instructions cannot change an integration's saved target.
+
+Include this in each saved automation prompt (including **Fix the review and/or merge**):
+
+> Read and follow `AGENTS.md`. Work only in `zbsmirnova/ai-workshop-start`, with PR base `main`.
+> Run `gh repo set-default zbsmirnova/ai-workshop-start` in each fresh checkout and pass
+> `--repo zbsmirnova/ai-workshop-start` to every `gh pr`, `gh issue`, and `gh run` command.
+> Use explicit `repos/zbsmirnova/ai-workshop-start/...` paths for repository-scoped API calls.
+> Verify the push remote is the fork before pushing. When creating a PR, explicitly pass
+> `--repo zbsmirnova/ai-workshop-start --base main --head <branch>`.
+> Read back the created PR. Before review or merge, verify the PR URL belongs to
+> `https://github.com/zbsmirnova/ai-workshop-start/pull/` and its base is `main`.
+> Report a mismatched repository or base instead of acting on it. Keep the existing review,
+> test, and merge authorization requirements.
+
+These are saved-prompt instructions, not a registered automation update. Apply them to the
+saved automations in Air as well as selecting the fork in their repository settings.
+
+Manual routing acceptance: in a fresh automation checkout, confirm `gh repo set-default --view`
+identifies `zbsmirnova/ai-workshop-start`. For the next authorized fix PR, verify its
+URL and base with `gh pr view <number> --repo zbsmirnova/ai-workshop-start --json url,baseRefName`.
+An event pointing to the parent repository must be reported without review or merge there.
+
+## Daily QA
+
 The Air automation that replaces the manual QA round. Create it in Air (Automations → New) and
 use **Run Now** to try it.
 
@@ -13,9 +43,9 @@ Prompt:
 > and produce `qa-report.md` with PASS/FAIL per script and a video for every script.
 >
 > - If **everything passes**: reply with just the summary table; do not open any issue.
-> - For **each failing script**: open a GitHub issue (`gh issue create`) titled
+> - For **each failing script**: open a GitHub issue (`gh issue create --repo zbsmirnova/ai-workshop-start`) titled
 >   `QA failure: <script id> — <script title>` labeled `qa`, unless an *open* issue with that title
->   already exists (`gh issue list --state open --label qa`) — then add a comment with the new run's
+>   already exists (`gh issue list --repo zbsmirnova/ai-workshop-start --state open --label qa`) — then add a comment with the new run's
 >   result instead. The issue body: the failing step, **expected vs. observed** (one sentence each),
 >   the checkpoint screenshot, how to reproduce (the `qa/<id>.md` script), and the name of the video
 >   artifact (`manual-qa/videos/<id>.webm`) from this run's session artifacts.
