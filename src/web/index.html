@@ -103,7 +103,7 @@ const element = (tag, className, text) => {
 let current = null;
 // The selected skill's id, kept across filtering and progressive organization renders.
 let selectedId = null;
-// Grows on every new scan, so a stale page loop stops rendering.
+// Grows whenever the view is cleared, so abandoned scans stop rendering.
 let scanId = 0;
 // Organization digest state: "+K more" expanded, and the repositories whose skills are open.
 let expandedAll = false;
@@ -119,7 +119,9 @@ $('form').addEventListener('submit', (event) => {
   scan(repo);
 });
 $('filter').addEventListener('input', () => {
-  history.replaceState(null, '', address($('repo').value.trim()));
+  // The address owns the submitted source; the field may contain an unsubmitted draft.
+  const repo = new URLSearchParams(location.search).get('repo') ?? '';
+  history.replaceState(null, '', address(repo));
   if (current) applyFilter();
 });
 addEventListener('popstate', () => load());
@@ -144,6 +146,8 @@ function load() {
 }
 
 function clear() {
+  scanId++;
+  $('scan').disabled = false;
   current = null;
   selectedId = null;
   expandedAll = false;
@@ -162,7 +166,7 @@ function clear() {
 
 async function scan(repo) {
   clear();
-  const id = ++scanId;
+  const id = scanId;
   $('scan').disabled = true;
   $('summary').textContent = 'Scanning…';
   try {

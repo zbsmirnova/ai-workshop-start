@@ -12,7 +12,8 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 - When the source can tell, the entry also shows when the skill was last updated, as `updated <YYYY-MM-DD>` (UTC); a local directory scan uses the `SKILL.md` file's modification date, a GitHub scan omits it
 - Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text
 - Warnings under the list; errors as a clear message in place of the result
-- The field's value is kept in the address as `?repo=<link>`; opening such an address scans it
+- Submitting the repository field keeps its trimmed value in the address as `?repo=<link>`; opening such an address scans it. Edits before submission are drafts. Filtering preserves the submitted/addressed repository even while loading or showing an error, so reopening the URL restores the same scan and filter. Before the first submission, filtering saves only `filter`, not a draft repository. Submitting a new repository replaces the addressed source and keeps the filter; Back/Forward restores both values from the address.
+- Back/Forward restores the addressed view. Navigating to an address without `repo` clears the result, details, warnings, errors and organization progress, and immediately enables Scan. Any abandoned repository response, error, organization listing or page must be ignored; it cannot overwrite the restored view or change a newer scan's button state. Returning Forward to a repository address starts a fresh scan.
 - The filter's value is kept in the address as `?filter=<words>`, even before any scan; opening such an address, or scanning with it typed, applies it once the scan shows its skills. A blank filter keeps every skill and drops the parameter.
 - Repository text is shown as text, never as HTML
 
