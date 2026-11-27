@@ -31,3 +31,20 @@ Prompt:
 - **Videos stay session artifacts** (they are large and ephemeral); the issue carries the
   screenshot and points at the run for the video.
 - **PASS runs are silent** apart from the report — the automation only makes noise on regressions.
+
+## Red agent
+
+Separate exploratory automation, using the same daily cadence as the QA round:
+
+- **Name:** Red agent — Skill Atlas web view
+- **Schedule:** daily at 07:00 UTC
+- **Branch:** `main`
+- **Prompt:** `Follow instructions from .agents/skills/red-agent/SKILL.md.`
+
+Create this in Air → Automations → New, then select **Run Now**. This document is a setup
+recipe, not a registered automation. The skill must be available on the selected branch.
+
+Prerequisites: enabled GitHub Issues, issue-write access, accessible video artifacts, and an
+installed repair integration watching the exact **Delegated to AI** label. Verify the integration
+actually opens a fix PR; applying a label alone does not provide that behavior. Each run reads
+back the issues it filed and reports issue URLs and any observed fix PRs.
