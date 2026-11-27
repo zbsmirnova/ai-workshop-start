@@ -9,6 +9,7 @@ $ node demo/server.ts &            # the real server, Claude answer pre-recorded
 $ node demo/record-web.mjs         # browser scenes → demo/out/*.webm + beat marks
 $ vhs demo/cli_scan.tape && vhs demo/cli_dev.tape   # terminal scenes
 $ demo/assemble.sh                 # title cards, timelapse, captions → demo/out/skill-atlas-demo.mp4
+$ demo/assemble-short.sh           # the ~20 s captioned cut → demo/out/skill-atlas-demo-20s.mp4
 ```
 
 - `server.ts` — the production server composition with one swap: the Claude runner is replaced
