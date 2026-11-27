@@ -7,6 +7,7 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 - A field for a **repository link**: a GitHub URL or a local directory, and a *Scan* button; an owner URL runs an [organization scan](organization.md)
 - A **filter field**: filters the shown skills *live*, client-side, with the [CLI filter rules](cli.md#filter); no re-scan
 - With an active filter: the field shows an `M of N` **count badge**, and each matching entry collapses to its **name** and a short **description snippet** around the first match, with every matched word *highlighted*; clearing the filter restores the full entries
+- Filter highlights and description snippets use original-text character boundaries even when lowercasing changes text length (for example `İxylophone` filtered by `xy` highlights `xy`, not `yl`). Preserve original text and whole Unicode characters; overlapping matches within one expanded character highlight it once. Filtering retains the existing lowercase substring rules.
 - The header: `<owner>/<repo> · N skills`; with an active filter, `<owner>/<repo> · M of N skills`
 - One entry per skill, as a bordered card, ordered by name, then primary path (as in the [CLI](cli.md)): **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
 - When the source can tell, the entry also shows when the skill was last updated, as `updated <YYYY-MM-DD>` (UTC); a local directory scan uses the `SKILL.md` file's modification date, a GitHub scan omits it

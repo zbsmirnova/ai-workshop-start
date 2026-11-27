@@ -390,29 +390,37 @@ function renderEntry(item, skill, words) {
     description.textContent = skill.description;
     return;
   }
-  const lower = skill.description.toLowerCase();
-  let first = -1;
-  let length = 0;
-  for (const word of words) {
-    const at = lower.indexOf(word);
-    if (at !== -1 && (first === -1 || at < first)) { first = at; length = word.length; }
-  }
-  if (first === -1) {
+  const first = matchRanges(skill.description, words)[0];
+  if (!first) {
     description.textContent = '';
     return;
   }
-  const start = Math.max(0, first - 20);
-  const end = Math.min(skill.description.length, first + length + 40);
+  let start = Math.max(0, first.start - 20);
+  let end = Math.min(skill.description.length, first.end + 40);
+  // Do not cut through a UTF-16 surrogate pair at a snippet boundary.
+  const lowSurrogate = (at) => /[\uDC00-\uDFFF]/.test(skill.description.charAt(at));
+  if (lowSurrogate(start)) start--;
+  if (lowSurrogate(end)) end++;
   const snippet = (start ? '…' : '') + skill.description.slice(start, end) + (end < skill.description.length ? '…' : '');
   description.replaceChildren(...highlighted(snippet, words));
 }
 
-/** The text as nodes, each case-insensitive occurrence of a word wrapped in a safe `<mark>`. */
-function highlighted(text, words) {
+/** Map lowercase matches back to original UTF-16 boundaries (İ lowercases to two units). */
+function matchRanges(text, words) {
+  // Lowercase the whole string to retain contextual mappings, such as Greek final sigma.
   const lower = text.toLowerCase();
-  const nodes = [];
+  const starts = [], ends = [];
+  let offset = 0;
+  for (const character of text) {
+    for (let i = 0; i < character.toLowerCase().length; i++) {
+      starts.push(offset);
+      ends.push(offset + character.length);
+    }
+    offset += character.length;
+  }
+  const ranges = [];
   let from = 0;
-  while (from < text.length) {
+  while (from < lower.length) {
     let at = -1;
     let length = 0;
     for (const word of words) {
@@ -420,9 +428,24 @@ function highlighted(text, words) {
       if (found !== -1 && (at === -1 || found < at || (found === at && word.length > length))) { at = found; length = word.length; }
     }
     if (at === -1) break;
-    if (at > from) nodes.push(document.createTextNode(text.slice(from, at)));
-    nodes.push(element('mark', '', text.slice(at, at + length)));
+    const range = { start: starts[at], end: ends[at + length - 1] };
+    const previous = ranges.at(-1);
+    // Separate matches can map to the same original character after case expansion.
+    if (previous && range.start < previous.end) previous.end = Math.max(previous.end, range.end);
+    else ranges.push(range);
     from = at + length;
+  }
+  return ranges;
+}
+
+/** The original text as safe nodes, with matching character spans wrapped in marks. */
+function highlighted(text, words) {
+  const nodes = [];
+  let from = 0;
+  for (const { start, end } of matchRanges(text, words)) {
+    if (start > from) nodes.push(document.createTextNode(text.slice(from, start)));
+    nodes.push(element('mark', '', text.slice(start, end)));
+    from = end;
   }
   if (from < text.length) nodes.push(document.createTextNode(text.slice(from)));
   return nodes;
