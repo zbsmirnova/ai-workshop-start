@@ -38,9 +38,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: './skill-atlas serve --port 4173',
+    command: 'node e2e/server.ts',
     url: 'http://localhost:4173',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     stdout: 'ignore',
   },
 });

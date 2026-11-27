@@ -31,3 +31,15 @@ Set `GITHUB_TOKEN` for a higher GitHub rate limit. `npm test` runs the tests.
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
 - [fixture/](fixture/README.md): a small repository for the tests.
+
+Explore the skill map without AI, then with a tiny model:
+
+```console
+$ ./skill-atlas map ./fixture
+$ ./skill-atlas map ./fixture --model claude
+```
+
+The second command uses your installed, authenticated Claude CLI (`claude -p`, Haiku).
+For the interactive map, run `./skill-atlas serve` and open <http://localhost:4173/map>.
+Choose shared words or Claude, then select a skill to read its instructions.
+`npm run e2e` replays a saved model answer without calling Claude.
