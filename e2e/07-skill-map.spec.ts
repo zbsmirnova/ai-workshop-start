@@ -7,6 +7,8 @@ test('skill map: shared words, recorded model answer and skill selection', async
   await page.getByRole('button', { name: 'Build map' }).click();
   await expect(page.getByRole('status')).toHaveText('3 skills · 3 groups · shared words');
   await expect(page.locator('.cluster button')).toHaveCount(3);
+  await expect(page.locator('.cluster h2')).toHaveCount(0);
+  await expect(page.getByText('Browser maps support up to 2,000 skills')).toBeVisible();
   await expect(page).toHaveScreenshot('07-heuristic.png');
   await page.getByLabel('Grouping method').selectOption('claude');
   await page.getByRole('button', { name: 'Build map' }).click();
@@ -56,7 +58,7 @@ test('map pages owners, reuses clean scans, disables pending builds and renders 
 
 test('scan warnings survive model failure and retry', async ({page}) => {
   await page.goto('/map');
-  await page.route('**/api/map',route=>route.fulfill({status:400,json:{error:'Model unavailable'}}));
+  await page.route('**/api/map',route=>route.fulfill({status:502,json:{error:'Model unavailable'}}));
   await page.getByLabel('Repository link').fill(FIXTURE);
   await page.getByRole('button',{name:'Build map'}).click();
   await expect(page.locator('#warnings')).toBeVisible();
@@ -64,6 +66,8 @@ test('scan warnings survive model failure and retry', async ({page}) => {
   await page.unroute('**/api/map');
   await page.getByRole('button',{name:'Build map'}).click();
   await expect(page.locator('.cluster button')).toHaveCount(3);
+  await expect(page.locator('.cluster h2')).toHaveCount(0);
+  await expect(page.getByText('Browser maps support up to 2,000 skills')).toBeVisible();
   await expect(page.locator('#warnings')).toBeVisible();
   await expect(page.getByRole('alert')).toBeHidden();
 });

@@ -8,23 +8,50 @@ const stop = new Set('a about after again all also an and any are as at be becau
 /** Greedy shared-word groups; stable input order and lexical tie breaks. */
 export function heuristic(skills: MapSkill[]): Cluster[] {
   const remaining = new Map([...skills].sort((a, b) => a.id < b.id ? -1 : 1).map(s => [s.id, s]));
+  const tokens = new Map<string, string[]>();
+  const words = new Map<string, Set<string>>();
+  for (const skill of remaining.values()) {
+    const unique = [...new Set(`${skill.name} ${skill.description}`.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])]
+      .filter(word => word.length >= 2 && !stop.has(word));
+    tokens.set(skill.id, unique);
+    for (const word of unique) {
+      if (!words.has(word)) words.set(word, new Set());
+      words.get(word)!.add(skill.id);
+    }
+  }
+  // Measure document frequency once, against the entire corpus, not each remainder.
+  for (const [word, ids] of words) {
+    if (ids.size < 2 || (skills.length > 2 && ids.size > skills.length / 2)) words.delete(word);
+  }
+  const buckets = new Map<number, Set<string>>();
+  const add = (word: string, count: number) => {
+    if (count < 2) return;
+    if (!buckets.has(count)) buckets.set(count, new Set());
+    buckets.get(count)!.add(word);
+  };
+  let maximum = 0;
+  for (const [word, ids] of words) { add(word, ids.size); maximum = Math.max(maximum, ids.size); }
   const groups: Cluster[] = [];
   while (remaining.size) {
-    const words = new Map<string, string[]>();
-    for (const skill of remaining.values()) {
-      for (const word of new Set(`${skill.name} ${skill.description}`.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])) {
-        if (word.length < 3 || stop.has(word)) continue;
-        words.set(word, [...(words.get(word) ?? []), skill.id]);
-      }
-    }
-    const best = [...words].filter(([, ids]) => ids.length > 1)
-      .sort((a, b) => b[1].length - a[1].length || (a[0] < b[0] ? -1 : 1))[0];
-    if (!best) {
+    while (maximum > 1 && !buckets.get(maximum)?.size) maximum--;
+    if (maximum < 2) {
       for (const skill of remaining.values()) groups.push({ label: skill.name, skillIds: [skill.id] });
       break;
     }
-    groups.push({ label: best[0], skillIds: best[1] });
-    best[1].forEach(id => remaining.delete(id));
+    let best: string | undefined;
+    for (const word of buckets.get(maximum)!) if (best === undefined || word < best) best = word;
+    const ids = [...words.get(best!)!];
+    groups.push({ label: best!, skillIds: ids });
+    for (const id of ids) {
+      remaining.delete(id);
+      for (const word of tokens.get(id)!) {
+        const members = words.get(word);
+        if (!members) continue;
+        buckets.get(members.size)?.delete(word);
+        members.delete(id);
+        add(word, members.size);
+      }
+    }
   }
   return groups;
 }

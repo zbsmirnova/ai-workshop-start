@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { cluster, type MapSkill, type ModelAnswer } from './core/cluster.ts';
-import { AtlasError } from './core/errors.ts';
+import { AtlasError, ModelUnavailableError } from './core/errors.ts';
 import { skillLink } from './core/model.ts';
 import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
 import { scan, type ScanResult, type Source } from './core/scan.ts';
@@ -92,7 +92,15 @@ async function handle(request: IncomingMessage, response: ServerResponse, { open
       try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new AtlasError('Expected JSON'); }
       if (Array.isArray(input?.skills) && input.skills.length > 2000) throw new AtlasError('Too many skills: map supports at most 2,000 skills');
       if (!input || !Array.isArray(input.skills) || input.skills.some((s: MapSkill) => !s || !['id', 'name', 'description'].every(k => typeof s[k as keyof MapSkill] === 'string')) || new Set(input.skills.map((s: MapSkill) => s.id)).size !== input.skills.length) throw new AtlasError('Expected skills with unique ids, names and descriptions');
-      return send(response, 200, { clusters: await cluster(input.skills, input.method ?? 'heuristic', modelAnswer) });
+      const method = input.method ?? 'heuristic';
+      if (method !== 'heuristic' && method !== 'claude') throw new AtlasError('Choose heuristic or claude');
+      if (method === 'claude' && input.skills.length && !modelAnswer) return send(response, 503, { error: 'Claude clustering is not available here' });
+      try {
+        return send(response, 200, { clusters: await cluster(input.skills, method, modelAnswer) });
+      } catch (error) {
+        if (method !== 'claude') throw error;
+        return send(response, error instanceof ModelUnavailableError ? 503 : 502, { error: error instanceof Error ? error.message : String(error) });
+      }
     } catch (error) {
       if (!(error instanceof AtlasError)) throw error;
       return send(response, 400, { error: error.message });

@@ -19,7 +19,7 @@ pre { white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.6 ui-monospace,m
 </style></head><body>
 <header><a href="/">Skill Atlas · repository view</a><h1>The skill map</h1><p>Explore skills grouped by shared words, or ask a tiny model to find common purposes.</p>
 <form id="form"><input id="repo" aria-label="Repository link" placeholder="GitHub repository, owner URL, or local directory" required><select id="method" aria-label="Grouping method"><option value="heuristic">Without AI · shared words</option><option value="claude">Tiny model · Claude Haiku</option></select><button id="build">Build map</button></form>
-<small>Claude sends skill names and descriptions to the model through your local Claude CLI.</small></header>
+<small>Claude sends skill names and descriptions to the model through your local Claude CLI.</small><small>Browser maps support up to 2,000 skills and 1 MB of map input. For larger scans, use the map CLI.</small></header>
 <div id="status" role="status">Choose a repository to map its skills.</div><div id="error" role="alert" hidden></div>
 <ul id="warnings" aria-label="Scan warnings" hidden></ul>
 <main><section id="groups" aria-label="Skill groups"></section><aside id="detail"><h2 id="title">Select a skill</h2><a id="link" hidden target="_blank" rel="noreferrer">Open SKILL.md</a><pre id="contents"></pre></aside></main>
@@ -57,7 +57,9 @@ $('form').addEventListener('submit', async event => {
     const result = await json('/api/map', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({method, skills:skills.map(({id,name,description}) => ({id,name,description}))}) });
     for (const group of result.clusters) {
       const card = document.createElement('section'); card.className = 'cluster';
-      const heading = document.createElement('h2'); heading.textContent = group.label; card.append(heading);
+      if (group.skillIds.length !== 1 || group.label !== skills.find(s => s.id === group.skillIds[0]).name) {
+        const heading = document.createElement('h2'); heading.textContent = group.label; card.append(heading);
+      }
       for (const id of group.skillIds) {
         const skill = skills.find(s => s.id === id); const button = document.createElement('button'); button.textContent = skill.name;
         button.setAttribute('aria-pressed','false'); button.addEventListener('click', () => select(skill,button)); card.append(button);
