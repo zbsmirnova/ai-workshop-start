@@ -71,3 +71,41 @@ test('scan warnings survive model failure and retry', async ({page}) => {
   await expect(page.locator('#warnings')).toBeVisible();
   await expect(page.getByRole('alert')).toBeHidden();
 });
+
+for (const previous of ['none', 'warnings', 'clean']) for (const invalid of ['', '   ']) {
+  test(`${invalid ? 'whitespace' : 'empty'} map source is rejected after ${previous} and allows retry`, async ({ page }) => {
+    if (previous === 'clean') {
+      await page.route('**/api/scan?*', async route => {
+        const response = await route.fetch();
+        const data = await response.json();
+        // Exercise the clean-scan cache with the real fixture skills.
+        await route.fulfill({ json: { ...data, warnings: [] } });
+      });
+    }
+    let requests = 0;
+    page.on('request', request => { if (request.url().includes('/api/')) requests++; });
+    await page.goto('/map');
+    if (previous !== 'none') {
+      await page.getByLabel('Repository link').fill(FIXTURE);
+      await page.getByRole('button', { name: 'Build map' }).click();
+      await expect(page.locator('.cluster button')).toHaveCount(3);
+      await page.getByRole('button', { name: 'commits', exact: true }).click();
+      await expect(page.locator('#contents')).toContainText('# Commits');
+    }
+    const before = requests;
+    await page.getByLabel('Repository link').fill(invalid);
+    await page.getByRole('button', { name: 'Build map' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Enter a repository URL or local directory.');
+    await expect(page.getByRole('status')).toHaveText('Map could not be built. Try again.');
+    await expect(page.locator('.cluster')).toHaveCount(0);
+    await expect(page.locator('#contents')).toBeEmpty();
+    await expect(page.locator('#link')).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Build map' })).toBeEnabled();
+    expect(requests).toBe(before);
+    if (previous === 'warnings') await expect(page.locator('#warnings')).toBeVisible();
+    await page.getByLabel('Repository link').fill(FIXTURE);
+    await page.getByRole('button', { name: 'Build map' }).click();
+    await expect(page.locator('.cluster button')).toHaveCount(3);
+    await expect(page.getByRole('alert')).toBeHidden();
+  });
+}

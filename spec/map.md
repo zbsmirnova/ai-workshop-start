@@ -10,6 +10,8 @@ With `--model claude`, run `claude -p --model haiku` with the prompt on stdin, t
 
 `POST /api/map` accepts JSON `{skills: [{id, name, description}], method: "heuristic" | "claude"}` and returns `{clusters: [{label, skillIds}]}`. Default method is heuristic. Input IDs must be unique; at most 2,000 skills and 1 MB input. More than 2,000 skills returns 400 with an explicit skill-count limit message. Invalid input returns 400, oversized input 413. Model failures and invalid answers return 502; an unavailable Claude runner returns 503. The local Host restriction applies, JSON is required, and a foreign Origin returns 403.
 
+A blank or whitespace-only repository is rejected with a clear message before scanning or grouping, including after a cached scan. Clear previous groups and selected details, keep any prior scan warnings visible, and leave Build map enabled for retry. A subsequent valid build works normally.
+
 Tests replay a saved model answer through an injected model runner, including browser tests through a test-only server. No test invokes Claude or requires model credentials. Visual browser tests cover both grouping methods and selection.
 
 The browser test server uses port 4174 so the default development server on 4173 can remain running.
