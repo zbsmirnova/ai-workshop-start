@@ -3,7 +3,7 @@ import { AtlasError } from './errors.ts';
 export type MapSkill = { id: string; name: string; description: string };
 export type Cluster = { label: string; skillIds: string[] };
 export type ModelAnswer = (prompt: string) => Promise<string>;
-const stop = new Set('a an and are as at be before by for from in is it of on or skill skills the this to use with'.split(' '));
+const stop = new Set('a about after again all also an and any are as at be because been before being between both but by can could did do does doing down during each few for from further had has have having he her here hers herself him himself his how i if in into is it its itself just me more most my myself no nor not now of off on once only or other our ours ourselves out over own same she should skill skills so some such than that the their theirs them themselves then there these they this those through to too under until up use used using user users very was we were what when where which while who whom why will with would you your yours yourself yourselves need needs want wants'.split(' '));
 
 /** Greedy shared-word groups; stable input order and lexical tie breaks. */
 export function heuristic(skills: MapSkill[]): Cluster[] {
@@ -45,5 +45,5 @@ export async function cluster(skills: MapSkill[], method: string, answer?: Model
     for (const id of group.skillIds) if (!remaining.delete(id)) throw new AtlasError('Claude returned an unknown or duplicate skill');
   }
   if (remaining.size) throw new AtlasError('Claude omitted skills');
-  return value.clusters;
+  return value.clusters.map(({ label, skillIds }: Cluster) => ({ label, skillIds }));
 }

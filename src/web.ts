@@ -90,7 +90,8 @@ async function handle(request: IncomingMessage, response: ServerResponse, { open
       }
       let input;
       try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new AtlasError('Expected JSON'); }
-      if (!input || !Array.isArray(input.skills) || input.skills.length > 2000 || input.skills.some((s: MapSkill) => !s || !['id', 'name', 'description'].every(k => typeof s[k as keyof MapSkill] === 'string')) || new Set(input.skills.map((s: MapSkill) => s.id)).size !== input.skills.length) throw new AtlasError('Expected skills with unique ids, names and descriptions');
+      if (Array.isArray(input?.skills) && input.skills.length > 2000) throw new AtlasError('Too many skills: map supports at most 2,000 skills');
+      if (!input || !Array.isArray(input.skills) || input.skills.some((s: MapSkill) => !s || !['id', 'name', 'description'].every(k => typeof s[k as keyof MapSkill] === 'string')) || new Set(input.skills.map((s: MapSkill) => s.id)).size !== input.skills.length) throw new AtlasError('Expected skills with unique ids, names and descriptions');
       return send(response, 200, { clusters: await cluster(input.skills, input.method ?? 'heuristic', modelAnswer) });
     } catch (error) {
       if (!(error instanceof AtlasError)) throw error;

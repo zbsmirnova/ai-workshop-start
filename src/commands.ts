@@ -147,7 +147,7 @@ async function mapCommand(args: string[], context: Context) {
     context.print(`\n${group.label}`);
     for (const id of group.skillIds) {
       const skill = skills.find(s => s.id === id)!;
-      context.print(`  ${skill.name}`);
+      if (group.skillIds.length !== 1 || group.label !== skill.name) context.print(`  ${skill.name}`);
       context.print(`    ${skillLink(results.find(r => r.repository.id === skill.repository)!.repository, skill)}`);
     }
   }

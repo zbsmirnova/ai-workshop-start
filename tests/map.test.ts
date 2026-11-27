@@ -90,3 +90,56 @@ process.exit(Number(process.env.MODEL_EXIT || 0));
     assert.match(code ? result.stderr : result.stdout, code ? /claude -p failed/ : /Development workflow/);
   }
 });
+
+test('Use when boilerplate leaves meaningful shared-word groups', () => {
+  const input = [
+    {id:'1', name:'pdf', description:'Use when the user wants to read PDF forms.'},
+    {id:'2', name:'forms', description:'Use when you need to fill PDF forms.'},
+    {id:'3', name:'commits', description:'Use when writing git commit messages.'},
+    {id:'4', name:'history', description:'Use when you need to inspect git history.'},
+  ];
+  assert.deepEqual(heuristic(input), [{label:'forms',skillIds:['1','2']},{label:'git',skillIds:['3','4']}]);
+});
+
+test('model extra fields do not leak into cluster output', async () => {
+  assert.deepEqual(await cluster(skills, 'claude', async () => JSON.stringify({clusters:[{label:'all',skillIds:skills.map(s=>s.id),extra:'ignored'}]})), [{label:'all',skillIds:skills.map(s=>s.id)}]);
+});
+
+test('HTTP skill limit has a specific message and accepts exactly 2000', async t => {
+  const server = createWebServer({open:openDirectory});
+  const base = await listen(server,0); t.after(()=>server.close());
+  for (const count of [2000,2001]) {
+    const response = await fetch(base+'/api/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skills:Array.from({length:count},(_,i)=>({id:String(i),name:'build',description:''}))})});
+    assert.equal(response.status,count===2000?200:400);
+    if(count===2001) assert.match((await response.json()).error,/at most 2,000/);
+  }
+});
+
+test('Claude process isolation, missing binary, output limit and real 60-second timeout', {timeout:75000}, async t => {
+  const { spawn } = await import('node:child_process');
+  const bin = mkdtempSync(join(tmpdir(), 'atlas-process-')); t.after(()=>rmSync(bin,{recursive:true,force:true}));
+  const binary = join(bin,'claude');
+  writeFileSync(binary, `#!${process.execPath}
+import {readFileSync} from 'node:fs';
+readFileSync(0,'utf8');
+if (!process.cwd().includes('atlas-model-')) process.exit(9);
+if (process.env.SCENARIO === 'large') process.stdout.write('x'.repeat(1_000_001));
+else setInterval(()=>{},1000);
+`, {mode:0o755});
+  async function check(scenario:string, pattern:RegExp) {
+    const child = spawn(process.execPath,['src/cli.ts','map',fixture,'--model','claude'],{env:{...process.env,PATH:scenario==='missing'?join(bin,'missing'):bin,SCENARIO:scenario}});
+    t.after(()=>{if(child.exitCode===null) child.kill('SIGKILL');});
+    let error=''; child.stderr.on('data',s=>error+=s); child.stdout.resume();
+    const code = await new Promise(resolve=>child.on('close',resolve));
+    assert.equal(code,1); assert.match(error,pattern);
+  }
+  await Promise.all([check('missing',/Cannot run claude.*ENOENT/),check('large',/response is too large/),check('timeout',/timed out after 60 seconds/)]);
+});
+
+test('map CLI includes skills from the final owner page', async () => {
+  const {scanOrg} = await import('./helpers.ts');
+  const output:string[]=[];
+  assert.equal(await run(['map','https://github.com/BigOrg'],{open:openDirectory,scanOrganization:scanOrg,print:s=>output.push(s),error:assert.fail}),0);
+  assert.match(output.join('\n'),/finale/);
+  assert.match(output.join('\n'),/BigOrg\/r24\/blob\/commit-r24/);
+});
