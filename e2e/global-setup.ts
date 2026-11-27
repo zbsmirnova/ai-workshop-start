@@ -1,6 +1,6 @@
-import { cpSync, rmSync, readdirSync, utimesSync, statSync } from 'node:fs';
+import { cpSync, rmSync, readdirSync, utimesSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { FIXTURE } from './helpers';
+import { FIXTURE, MAP_FIXTURE } from './helpers';
 
 // Stage the fixture at a fixed absolute path with fixed mtimes: the page shows file:// links (and
 // may show dates), so the scanned path and timestamps must be identical locally and on CI for the
@@ -14,4 +14,12 @@ export default function globalSetup() {
     if (statSync(p).isDirectory()) for (const f of readdirSync(p)) touch(path.join(p, f));
   };
   touch(FIXTURE);
+  rmSync(MAP_FIXTURE, { recursive: true, force: true });
+  cpSync(FIXTURE, MAP_FIXTURE, { recursive: true });
+  // The original fixture has no exact shared topic word; keep other visual baselines intact.
+  for (const relative of ['.github/skills/code-style/SKILL.md', '.claude/skills/commits/SKILL.md']) {
+    const file = path.join(MAP_FIXTURE, relative);
+    writeFileSync(file, readFileSync(file, 'utf8').replace('description: ', 'description: git workflow. '));
+  }
+  touch(MAP_FIXTURE);
 }

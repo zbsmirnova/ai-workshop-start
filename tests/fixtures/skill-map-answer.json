@@ -1,1 +1,1 @@
-{"clusters":[{"label":"Development workflow","skillIds":["fixture:.github/skills/code-style/SKILL.md","fixture:.claude/skills/commits/SKILL.md"]},{"label":"Releases","skillIds":["fixture:.agents/skills/release-checklist/SKILL.md"]}]}
+{"clusters":[{"label":"Development workflow","skillIds":[0,1]},{"label":"Releases","skillIds":[2]}]}

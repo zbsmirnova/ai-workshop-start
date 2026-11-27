@@ -2,7 +2,7 @@
 // what to scan comes in through `open`. Nothing is stored.
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { cluster, type MapSkill, type ModelAnswer } from './core/cluster.ts';
+import { claudeData, cluster, type MapSkill, type ModelAnswer } from './core/cluster.ts';
 import { AtlasError, ModelUnavailableError } from './core/errors.ts';
 import { skillLink } from './core/model.ts';
 import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
@@ -94,6 +94,7 @@ async function handle(request: IncomingMessage, response: ServerResponse, { open
       if (!input || !Array.isArray(input.skills) || input.skills.some((s: MapSkill) => !s || !['id', 'name', 'description'].every(k => typeof s[k as keyof MapSkill] === 'string')) || new Set(input.skills.map((s: MapSkill) => s.id)).size !== input.skills.length) throw new AtlasError('Expected skills with unique ids, names and descriptions');
       const method = input.method ?? 'heuristic';
       if (method !== 'heuristic' && method !== 'claude') throw new AtlasError('Choose heuristic or claude');
+      if (method === 'claude') claudeData(input.skills);
       if (method === 'claude' && input.skills.length && !modelAnswer) return send(response, 503, { error: 'Claude clustering is not available here' });
       try {
         return send(response, 200, { clusters: await cluster(input.skills, method, modelAnswer) });

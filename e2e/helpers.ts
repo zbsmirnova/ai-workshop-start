@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test';
 
 /** Where global-setup stages the fixture: a fixed path, identical locally and on CI. */
 export const FIXTURE = '/tmp/skill-atlas-e2e/fixture';
+export const MAP_FIXTURE = '/tmp/skill-atlas-e2e/map/fixture';
 
 /** Scan the staged fixture and wait for its three skills, as a user would. */
 export async function scanFixture(page: Page) {

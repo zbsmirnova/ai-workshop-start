@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { FIXTURE } from './helpers';
+import { MAP_FIXTURE as FIXTURE } from './helpers';
 
 test('skill map: shared words, recorded model answer and skill selection', async ({ page }) => {
   await page.goto('/map');
   await page.getByLabel('Repository link').fill(FIXTURE);
   await page.getByRole('button', { name: 'Build map' }).click();
-  await expect(page.getByRole('status')).toHaveText('3 skills · 3 groups · shared words');
+  await expect(page.getByRole('status')).toHaveText('3 skills · 2 groups · shared words');
   await expect(page.locator('.cluster button')).toHaveCount(3);
-  await expect(page.locator('.cluster h2')).toHaveCount(0);
+  await expect(page.locator('.cluster h2')).toHaveCount(1);
   await expect(page.getByText('Browser maps support up to 2,000 skills')).toBeVisible();
   await expect(page).toHaveScreenshot('07-heuristic.png');
   await page.getByLabel('Grouping method').selectOption('claude');
@@ -54,6 +54,9 @@ test('map pages owners, reuses clean scans, disables pending builds and renders 
   await page.getByRole('button',{name:'Build map'}).click();
   await expect(page.getByRole('status')).toContainText('Claude Haiku');
   expect(scans).toHaveLength(2);
+  await page.getByRole('button',{name:'Build map'}).click();
+  await expect(page.getByRole('status')).toContainText('Claude Haiku');
+  expect(scans).toHaveLength(4);
 });
 
 test('scan warnings survive model failure and retry', async ({page}) => {
@@ -66,8 +69,27 @@ test('scan warnings survive model failure and retry', async ({page}) => {
   await page.unroute('**/api/map');
   await page.getByRole('button',{name:'Build map'}).click();
   await expect(page.locator('.cluster button')).toHaveCount(3);
-  await expect(page.locator('.cluster h2')).toHaveCount(0);
+  await expect(page.locator('.cluster h2')).toHaveCount(1);
   await expect(page.getByText('Browser maps support up to 2,000 skills')).toBeVisible();
   await expect(page.locator('#warnings')).toBeVisible();
   await expect(page.getByRole('alert')).toBeHidden();
+});
+
+test('majority topic cards and a fresh single-skill scan', async ({page}) => {
+  let scans = 0;
+  await page.route('**/api/scan?*', route => {
+    const descriptions = scans++ === 0 ? ['git commit','git history','git branch','pdf read','pdf write'] : ['git commit'];
+    return route.fulfill({json:{warnings:[],skills:descriptions.map((description,i)=>({id:String(i),name:description,description,contents:description,link:'https://example.com/skill'}))}});
+  });
+  await page.goto('/map');
+  await page.getByLabel('Repository link').fill('example');
+  await page.getByRole('button',{name:'Build map'}).click();
+  await expect(page.getByRole('status')).toHaveText('5 skills · 2 groups · shared words');
+  await expect(page.getByRole('heading',{name:'git',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'pdf',exact:true})).toBeVisible();
+  await expect(page).toHaveScreenshot('07-majority.png');
+  await page.getByRole('button',{name:'Build map'}).click();
+  await expect(page.getByRole('status')).toHaveText('1 skill · 1 group · shared words');
+  await expect(page.locator('.cluster button')).toHaveCount(1);
+  expect(scans).toBe(2);
 });

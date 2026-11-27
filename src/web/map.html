@@ -19,13 +19,13 @@ pre { white-space:pre-wrap; overflow-wrap:anywhere; font:13px/1.6 ui-monospace,m
 </style></head><body>
 <header><a href="/">Skill Atlas · repository view</a><h1>The skill map</h1><p>Explore skills grouped by shared words, or ask a tiny model to find common purposes.</p>
 <form id="form"><input id="repo" aria-label="Repository link" placeholder="GitHub repository, owner URL, or local directory" required><select id="method" aria-label="Grouping method"><option value="heuristic">Without AI · shared words</option><option value="claude">Tiny model · Claude Haiku</option></select><button id="build">Build map</button></form>
-<small>Claude sends skill names and descriptions to the model through your local Claude CLI.</small><small>Browser maps support up to 2,000 skills and 1 MB of map input. For larger scans, use the map CLI.</small></header>
+<small>Claude sends skill names and descriptions to the model through your local Claude CLI.</small><small>Browser maps support up to 2,000 skills and 1 MB of map input. Claude supports up to 100 skills and 32 KB of names and descriptions. For larger scans, use shared words; above browser limits, use the map CLI.</small></header>
 <div id="status" role="status">Choose a repository to map its skills.</div><div id="error" role="alert" hidden></div>
 <ul id="warnings" aria-label="Scan warnings" hidden></ul>
 <main><section id="groups" aria-label="Skill groups"></section><aside id="detail"><h2 id="title">Select a skill</h2><a id="link" hidden target="_blank" rel="noreferrer">Open SKILL.md</a><pre id="contents"></pre></aside></main>
 <script>
 const $ = id => document.getElementById(id);
-let skills = [], source = '', busy = false;
+let skills = [], source = '', lastMethod = '', busy = false;
 async function json(url, options) { const response = await fetch(url, options); const data = await response.json(); if (!response.ok) throw new Error(data.error); return data; }
 function select(skill, button) {
   document.querySelectorAll('.cluster button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
@@ -38,7 +38,11 @@ $('form').addEventListener('submit', async event => {
   $('groups').replaceChildren(); $('title').textContent = 'Select a skill'; $('contents').textContent = ''; $('link').hidden = true;
   try {
     const repo = $('repo').value.trim();
-    if (source !== repo) {
+    const method = $('method').value;
+    const reuse = source === repo && lastMethod !== method;
+    lastMethod = method;
+    if (!reuse) {
+      source = '';
       const first = await json('/api/scan?repo=' + encodeURIComponent(repo));
       const results = first.repositories ? [...first.repositories] : [first];
       const warnings = [...first.warnings];
@@ -53,7 +57,6 @@ $('form').addEventListener('submit', async event => {
         $('warnings').hidden = false;
       }
     }
-    const method = $('method').value;
     const result = await json('/api/map', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({method, skills:skills.map(({id,name,description}) => ({id,name,description}))}) });
     for (const group of result.clusters) {
       const card = document.createElement('section'); card.className = 'cluster';
@@ -66,7 +69,7 @@ $('form').addEventListener('submit', async event => {
       }
       $('groups').append(card);
     }
-    $('status').textContent = `${skills.length} skills · ${result.clusters.length} groups · ${method === 'claude' ? 'Claude Haiku' : 'shared words'}`;
+    $('status').textContent = `${skills.length} skill${skills.length === 1 ? '' : 's'} · ${result.clusters.length} group${result.clusters.length === 1 ? '' : 's'} · ${method === 'claude' ? 'Claude Haiku' : 'shared words'}`;
     if (!skills.length) $('status').textContent += ' · No skills found';
   } catch (error) { $('error').textContent = error.message; $('error').hidden = false; $('status').textContent = 'Map could not be built. Try again.'; }
   finally { busy = false; $('build').disabled = false; }

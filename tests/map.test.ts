@@ -13,6 +13,7 @@ import { AtlasError } from '../src/core/errors.ts';
 const fixture = new URL('../fixture', import.meta.url).pathname;
 const answer = readFileSync(new URL('./fixtures/skill-map-answer.json', import.meta.url), 'utf8');
 const skills = (await scan(await openDirectory(fixture))).skills;
+const expected = {clusters: JSON.parse(answer).clusters.map((g: {label:string;skillIds:number[]}) => ({label:g.label,skillIds:g.skillIds.map(i=>skills[i].id)}))};
 
 test('map CLI groups fixture with both methods, preserves links and warnings', async () => {
   for (const model of [false, true]) {
@@ -20,7 +21,7 @@ test('map CLI groups fixture with both methods, preserves links and warnings', a
     let calls = 0;
     const code = await run(['map', fixture, ...(model ? ['--model', 'claude'] : [])], {
       open: openDirectory, print: s => output.push(s), error: s => warnings.push(s),
-      modelAnswer: async prompt => { calls++; assert.ok(prompt.includes(skills[0].id)); assert.ok(!prompt.includes('# Commits')); return answer; },
+      modelAnswer: async prompt => { calls++; assert.ok(prompt.includes('"i":0')); assert.ok(!prompt.includes(skills[0].id)); assert.ok(!prompt.includes('# Commits')); return answer; },
     });
     assert.equal(code, 0); assert.equal(calls, Number(model));
     assert.match(output.join('\n'), /3 skills/); assert.match(output.join('\n'), /file:.*SKILL.md/);
@@ -43,10 +44,10 @@ test('empty scans skip model and CLI succeeds', async t => {
 });
 
 test('model validates recorded groups, including fenced JSON', async () => {
-  assert.deepEqual(await cluster(skills, 'claude', async () => answer), JSON.parse(answer).clusters);
-  assert.deepEqual(await cluster(skills, 'claude', async () => '```json\n'+answer+'\n```'), JSON.parse(answer).clusters);
+  assert.deepEqual(await cluster(skills, 'claude', async () => answer), expected.clusters);
+  assert.deepEqual(await cluster(skills, 'claude', async () => '```json\n'+answer+'\n```'), expected.clusters);
 });
-for (const [label, response] of Object.entries({ malformed:'oops', null:'null', shape:'{}', omitted:'{"clusters":[]}', empty:'{"clusters":[{"label":"x","skillIds":[]}]}', unknown:'{"clusters":[{"label":"x","skillIds":["invented"]}]}', duplicate:JSON.stringify({clusters:[{label:'x',skillIds:[skills[0].id,skills[0].id]}]}), blank:JSON.stringify({clusters:[{label:' ',skillIds:skills.map(s=>s.id)}]}) })) {
+for (const [label, response] of Object.entries({ malformed:'oops', null:'null', shape:'{}', omitted:'{"clusters":[]}', empty:'{"clusters":[{"label":"x","skillIds":[]}]}', unknown:'{"clusters":[{"label":"x","skillIds":["invented"]}]}', duplicate:JSON.stringify({clusters:[{label:'x',skillIds:[0,0]}]}), blank:JSON.stringify({clusters:[{label:' ',skillIds:skills.map(s=>s.id)}]}) })) {
   test(`invalid model answer: ${label}`, async () => assert.rejects(cluster(skills, 'claude', async () => response), AtlasError));
 }
 
@@ -63,7 +64,7 @@ test('map HTTP API validates input, origin, methods and model output', async t =
   const base = await listen(server,0); t.after(()=>server.close());
   assert.equal((await fetch(base+'/map')).status,200);
   const post = (body: unknown, headers: Record<string,string> = {'Content-Type':'application/json'}) => fetch(base+'/api/map',{method:'POST',headers,body:JSON.stringify(body)});
-  assert.deepEqual(await (await post({skills,method:'claude'})).json(), JSON.parse(answer));
+  assert.deepEqual(await (await post({skills,method:'claude'})).json(), expected);
   assert.deepEqual(await (await post({skills})).json(), {clusters:heuristic(skills)});
   for (const body of [null, {}, {skills:[{}]}, {skills:[skills[0],skills[0]]}, {skills,method:'unknown'}, {skills:[],method:'unknown'}]) assert.equal((await post(body)).status,400);
   assert.equal((await post({skills}, {'Content-Type':'text/plain'})).status,400);
@@ -80,7 +81,7 @@ test('real CLI transports prompt to claude -p over stdin, and reports process fa
 import { readFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 if (JSON.stringify(args) !== JSON.stringify(['-p','--model','haiku','--output-format','text','--tools','','--strict-mcp-config'])) process.exit(2);
-if (!readFileSync(0,'utf8').includes('fixture:.claude/skills/commits/SKILL.md')) process.exit(3);
+if (!readFileSync(0,'utf8').includes('\"i\":0')) process.exit(3);
 process.stdout.write(process.env.SAVED_ANSWER);
 process.exit(Number(process.env.MODEL_EXIT || 0));
 `, {mode:0o755});
@@ -102,7 +103,7 @@ test('Use when boilerplate leaves meaningful shared-word groups', () => {
 });
 
 test('model extra fields do not leak into cluster output', async () => {
-  assert.deepEqual(await cluster(skills, 'claude', async () => JSON.stringify({clusters:[{label:'all',skillIds:skills.map(s=>s.id),extra:'ignored'}]})), [{label:'all',skillIds:skills.map(s=>s.id)}]);
+  assert.deepEqual(await cluster(skills, 'claude', async () => JSON.stringify({clusters:[{label:'all',skillIds:skills.map((_,i)=>i),extra:'ignored'}]})), [{label:'all',skillIds:skills.map(s=>s.id)}]);
 });
 
 test('HTTP skill limit has a specific message and accepts exactly 2000', async t => {
@@ -156,11 +157,11 @@ for (const boilerplate of ['This skill should be used when Claude needs to handl
   });
 }
 
-test('document-frequency cutoff preserves pairs and excludes majority terms', () => {
+test('document-frequency cutoff preserves pairs and majority topics', () => {
   const pair = [{id:'a',name:'ci',description:''},{id:'b',name:'ci',description:''}];
   assert.deepEqual(heuristic(pair), [{label:'ci',skillIds:['a','b']}]);
   assert.deepEqual(heuristic([...pair,{id:'c',name:'qa',description:''}]), [
-    {label:'ci',skillIds:['a']},{label:'ci',skillIds:['b']},{label:'qa',skillIds:['c']},
+    {label:'ci',skillIds:['a','b']},{label:'qa',skillIds:['c']},
   ]);
 });
 
@@ -189,7 +190,65 @@ test('HTTP grouping updates overlapping words without recalculating the corpus c
   const server = createWebServer({open:openDirectory});
   const base = await listen(server,0); t.after(()=>server.close());
   const input = ['alpha beta','alpha beta','alpha','beta','gamma','gamma']
-    .map((description,i)=>({id:String(i),name:'',description}));
+    .map((description,i)=>({id:String(i),name:`skill${i}`,description}));
   const response = await fetch(base+'/api/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skills:input})});
-  assert.deepEqual((await response.json()).clusters,[{label:'alpha',skillIds:['0','1','2']},{label:'gamma',skillIds:['4','5']},{label:'',skillIds:['3']}]);
+  assert.deepEqual((await response.json()).clusters,[{label:'alpha',skillIds:['0','1','2']},{label:'gamma',skillIds:['4','5']},{label:'skill3',skillIds:['3']}]);
+});
+
+for (const descriptions of [
+  ['Fill PDF forms', 'Read PDF files', 'Write git commit messages'],
+  ['git commit', 'git history', 'git branch', 'pdf read', 'pdf write'],
+  ['git commit', 'git history', 'git branch', 'git merge', 'pdf read', 'pdf write', 'docx'],
+]) {
+  test(`HTTP preserves majority topics in ${descriptions.length} skills`, async t => {
+    const server = createWebServer({open:openDirectory});
+    const base = await listen(server,0); t.after(()=>server.close());
+    const input = descriptions.map((description,i)=>({id:String(i),name:`s${i}`,description}));
+    const response = await fetch(base+'/api/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skills:input})});
+    const groups = (await response.json()).clusters;
+    if (input.length === 3) assert.deepEqual(groups, [{label:'pdf',skillIds:['0','1']},{label:'s2',skillIds:['2']}]);
+    else {
+      const n = input.length === 5 ? 3 : 4;
+      assert.deepEqual(groups.slice(0,2), [{label:'git',skillIds:Array.from({length:n},(_,i)=>String(i))},{label:'pdf',skillIds:[String(n),String(n+1)]}]);
+    }
+  });
+}
+
+test('Claude limits are enforced by HTTP and core before invoking the runner', async t => {
+  let calls = 0;
+  const modelAnswer = async (prompt:string) => {
+    calls++;
+    const data = JSON.parse(prompt.split('Skills:\n')[1]);
+    return JSON.stringify({clusters:[{label:'all',skillIds:data.map((s:{i:number})=>s.i)}]});
+  };
+  const server = createWebServer({open:openDirectory,modelAnswer});
+  const base = await listen(server,0); t.after(()=>server.close());
+  const hundred = Array.from({length:100},(_,i)=>({id:`owner/repo:long/path/${i}/SKILL.md`,name:'test',description:''}));
+  const single = [{id:'one',name:'test',description:''}];
+  const overhead = Buffer.byteLength(JSON.stringify([{i:0,name:'test',description:''}]));
+  const exact = [{...single[0],description:'x'.repeat(32000-overhead)}];
+  for (const [input,status] of [[hundred,200], [[...hundred,{...single[0]}],400], [exact,200], [[{...exact[0],description:exact[0].description+'é'}],400]] as const) {
+    const before = calls;
+    const response = await fetch(base+'/api/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({skills:input,method:'claude'})});
+    assert.equal(response.status,status);
+    if (status === 400) {
+      assert.match((await response.json()).error,/Claude supports at most/);
+      await assert.rejects(cluster([...input],'claude',modelAnswer),/Claude supports at most/);
+      assert.equal(calls,before);
+    } else assert.equal(calls,before+1);
+  }
+});
+
+for (const indices of [[0,0,2],[0,1,3],[0,1,1.5],[0,1,'2'],[0,1,null]]) {
+  test(`Claude rejects invalid indices ${JSON.stringify(indices)}`, async () => {
+    await assert.rejects(cluster(skills,'claude',async()=>JSON.stringify({clusters:[{label:'all',skillIds:indices}]})),/unknown or duplicate/);
+  });
+}
+
+test('near-universal cutoff starts at five skills and ninety percent', () => {
+  const input = (total:number,shared:number) => Array.from({length:total},(_,i)=>({id:String(i),name:`s${i}`,description:i<shared?'topic':''}));
+  assert.equal(heuristic(input(4,4))[0].skillIds.length,4);
+  assert.equal(heuristic(input(5,5)).length,5);
+  assert.equal(heuristic(input(10,8))[0].skillIds.length,8);
+  assert.equal(heuristic(input(10,9)).length,10);
 });
