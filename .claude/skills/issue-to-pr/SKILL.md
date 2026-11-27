@@ -5,14 +5,17 @@ description: Turn an issue (a title/description handed to the agent, e.g. labele
 
 # issue-to-pr
 
-Turn an issue into a merged-ready pull request, asking the issue author in Slack when the issue
+Turn an issue into a merge-ready pull request, asking the issue author in Slack when the issue
 leaves a decision open.
 
 ## Inputs
 
 - The issue: title + body (from the prompt, or `gh issue view <n>` when the repo has issues enabled).
-- `SLACK_BOT_TOKEN` (environment secret) — Slack bot token for asking questions.
-- Slack channel for questions: `C0CN90V19L0` (#zina-workshop-test).
+- Slack token: `SLACK_BOT_TOKEN` env var, or `~/.slack_token` (written by `.air/cloud/startup.sh`
+  in Air cloud, where the secret does not reach the agent shell). The scripts check both and fail
+  with a clear message when neither is set.
+- Slack channel for questions: `ISSUE_TO_PR_CHANNEL` env var; defaults to `C0CN90V19L0`
+  (#zina-workshop-test — a workshop channel; set the env var when using this skill elsewhere).
 
 ## Workflow
 
@@ -24,36 +27,49 @@ leaves a decision open.
    conflicting constraints, or missing acceptance criteria. Routine implementation choices
    (naming, file layout) are NOT open decisions — just use your judgment.
 
-3. **Ask in Slack, wait for the reply — via the persisted state in `state/`.** If there is at
-   least one open decision:
-   - Pick a stable kebab-case slug for the issue (e.g. `make-the-skill-list-nicer`).
+3. **Ask in Slack, wait for the reply.** If there is at least one open decision:
+   - Pick a stable kebab-case slug for the issue (e.g. `make-the-skill-list-nicer`). **One slug =
+     one question thread**; a second open decision on the same issue needs its own slug
+     (e.g. `make-the-skill-list-nicer-2`).
    - Ask with `scripts/ask.sh <slug> "<question>"`: ONE concise message quoting the issue title,
-     stating the question(s), and offering concrete options (A/B/C) so the human can answer in a
-     word or two. The script posts to the channel, saves `{channel, ts, question, answer}` to
-     `state/<slug>.json`, and — crucially — **refuses to re-ask** when state for the slug already
-     exists, so a restarted or headless run never double-posts.
-   - Wait with `scripts/wait-reply.sh <slug> [timeout-seconds]` (run it in the background): it
-     resumes from the state file, polls the thread every ~15s, fails loudly on API errors
-     (revoked token, bot removed, …), records the answer back into the state file, and prints
-     `ANSWER: <text>`. If the answer was already recorded by an earlier run, it returns it
-     immediately. Do NOT start implementing the ambiguous part before the answer.
-   - **On any restart** (new session, fresh environment with the same checkout): check `state/`
-     first — a pending `<slug>.json` with `"answer": null` means resume `wait-reply.sh`, not re-ask.
-   - If a reply raises new questions, continue the conversation **in the same thread**
-     (`chat.postMessage` with `"thread_ts":"<ts>"`), and keep waiting.
-   - If no reply arrives within the timeout, post a note in the thread saying which default you're
-     taking, then proceed with the most conservative interpretation.
+     stating the question, and offering concrete options (A/B/C) so the human can answer in a word
+     or two. The script posts once and persists the thread to `state/<slug>.json`; it **refuses to
+     re-ask** when state exists, and when the local state is gone (fresh clone — `state/` is
+     gitignored) it **recovers the thread from Slack** via the `[issue-to-pr:<slug>]` marker it
+     embeds in the message, so no run ever double-posts.
+   - Wait with `scripts/wait-reply.sh <slug> [timeout-seconds]` (run it in the background): polls
+     the thread for a human reply newer than the bot's last message, retries transient
+     network/rate-limit errors with backoff, fails fast on fatal ones (revoked token, bot removed),
+     records the answer in the state file, and prints `ANSWER: <text>`. An already-recorded answer
+     returns immediately. Exit codes: 0 answered, 1 usage/missing state or token, 2 timeout,
+     3 fatal API error. Do NOT start implementing the ambiguous part before the answer.
+   - **On any restart** (new session, fresh environment): just run `ask.sh` again with the same
+     slug and question — it resumes (local state or Slack recovery) instead of re-posting — then
+     `wait-reply.sh`.
+   - If a reply raises new questions, continue **in the same thread** with
+     `scripts/reply.sh <slug> "<follow-up>"`, then `wait-reply.sh` again — it waits for a reply
+     newer than the follow-up.
+   - **On timeout, stop — never guess.** Post `scripts/reply.sh <slug> "Still waiting on this
+     decision before implementing."`, leave the state pending, report "waiting on Slack", and end
+     the run. The next run resumes with `wait-reply.sh`. (This is the AGENTS.md "never guess on
+     open decisions" rule; there is no "conservative default" for a taste question.)
 
 4. **Implement on a branch.** Branch off `main`, make the change, update `spec/` to match
    (per AGENTS.md), and add/adjust integration tests for every spec case touched.
 
-5. **Verify.** `npm test` must pass. If the change affects the web view, run `npm run e2e`
+5. **Verify.** `npm test` must pass (this includes `tests/issue-to-pr.test.ts`, which exercises
+   these scripts against a fake Slack server). If the change affects the web view, run `npm run e2e`
    (accept intended pixel changes with `npm run e2e -- --update-snapshots`).
 
 6. **Open the PR.** Push the branch, `gh pr create` with a summary that links the issue text and the
    Slack thread decision ("Per Slack: <answer>"). Attach a short video demo when the change is
    interactive (per AGENTS.md).
 
-7. **Close the loop in Slack.** Reply in the same thread with the PR link.
+7. **Close the loop in Slack:** `scripts/reply.sh <slug> "<PR link>"`.
 
 8. Run the `update-memory` skill after committing, per AGENTS.md.
+
+## Known limitations (acceptable for now)
+
+- Any human in the channel counts as the answerer — answers aren't restricted to the issue author.
+- Replies must be in the thread; channel-level answers and emoji reactions are not detected.
