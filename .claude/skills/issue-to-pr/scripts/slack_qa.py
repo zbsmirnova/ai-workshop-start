@@ -15,12 +15,13 @@ Environment:
                                since Air cloud does not propagate the secret to the agent shell).
   ISSUE_TO_PR_CHANNEL          Channel ID for questions (required for ask).
   ISSUE_TO_PR_STATE_DIR        State directory (default: <skill>/state).
+  ISSUE_TO_PR_RECOVERY_OLDEST  Earliest Unix timestamp for recovery (default: 30 days ago).
   ISSUE_TO_PR_POLL_INTERVAL    Base poll interval in seconds (default: 30).
   SLACK_API_BASE               API base URL (default: https://slack.com/api); for tests.
 
 Exit codes: 0 answered/ok, 1 usage, missing state or missing token, 2 timeout/transient/busy, 3 fatal API error.
 """
-import fcntl, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request
+import fcntl, json, math, os, re, sys, time, urllib.error, urllib.parse, urllib.request
 
 API = os.environ.get("SLACK_API_BASE", "https://slack.com/api").rstrip("/")
 CHANNEL = os.environ.get("ISSUE_TO_PR_CHANNEL")
@@ -97,7 +98,7 @@ def marker(slug):
     return f"[issue-to-pr:{slug}]"
 
 def is_human(m, bot_id):
-    return m.get("user") and m["user"] != bot_id and not m.get("bot_id") and not m.get("subtype")
+    return m.get("user") and m["user"] != bot_id and not m.get("bot_id") and m.get("subtype") in (None, "thread_broadcast", "file_share", "me_message")
 
 def load(path):
     try:
@@ -111,10 +112,23 @@ def load(path):
     except (OSError, ValueError, TypeError):
         return None
 
-def messages(method, **params):
+def read_with_retry(method, **params):
+    # Retry only reads: retrying a post after a lost response could duplicate it.
+    deadline = time.monotonic() + 60
+    for attempt in range(3):
+        try:
+            return call(method, **params)
+        except Transient as e:
+            delay = e.args[1] if len(e.args) > 1 and e.args[1] is not None else POLL * 2 ** attempt
+            if attempt == 2 or delay > deadline - time.monotonic():
+                raise
+            print(f"transient: {e.args[0]}; retrying read", file=sys.stderr)
+            time.sleep(max(0, delay))
+
+def messages(method, retry=False, **params):
     cursor = ""
     while True:
-        page = call(method, limit=200, cursor=cursor, **params)
+        page = (read_with_retry if retry else call)(method, limit=200, cursor=cursor, **params)
         yield from page.get("messages", [])
         cursor = page.get("response_metadata", {}).get("next_cursor", "")
         if not cursor:
@@ -126,17 +140,31 @@ def posted(payload):
         raise Fatal("chat.postMessage: missing ts; run ask to recover from Slack before retrying")
     return resp
 
+def check_question(actual, expected):
+    if actual != expected:
+        fail("warning: recovered/cached question differs; use the original question to resume "
+             "or a new decision slug for new work", 1)
+
 def cmd_ask(slug, question):
     path = state_path(slug)
     state = load(path)
+    text = f"{question}\n_{marker(slug)}_"
     if state:
+        check_question(state.get("question"), text)
         print("already-asked"); print(json.dumps(state, indent=2)); return
     if not CHANNEL:
         fail("set ISSUE_TO_PR_CHANNEL before asking", 1)
-    bot_id = call("auth.test")["user_id"]
-    for m in messages("conversations.history", channel=CHANNEL):
-        if marker(slug) in m.get("text", "") and m.get("ts") and m.get("user") == bot_id:
-            thread = list(messages("conversations.replies", channel=CHANNEL, ts=m["ts"]))
+    oldest = os.environ.get("ISSUE_TO_PR_RECOVERY_OLDEST", str(time.time() - 30 * 86400))
+    try:
+        if not math.isfinite(float(oldest)) or float(oldest) < 0:
+            raise ValueError()
+    except ValueError:
+        fail("ISSUE_TO_PR_RECOVERY_OLDEST must be a nonnegative Unix timestamp", 1)
+    bot_id = read_with_retry("auth.test")["user_id"]
+    for m in messages("conversations.history", retry=True, channel=CHANNEL, oldest=oldest):
+        if marker(slug) in m.get("text", "") and m.get("ts") and m.get("user") == bot_id and float(m["ts"]) >= float(oldest):
+            check_question(m.get("text"), text)
+            thread = list(messages("conversations.replies", retry=True, channel=CHANNEL, ts=m["ts"]))
             bot_questions = [r["ts"] for r in thread if r.get("user") == bot_id
                              and NOTIFY not in r.get("text", "")]
             state = {"issue": slug, "channel": CHANNEL, "ts": m["ts"],
@@ -146,7 +174,6 @@ def cmd_ask(slug, question):
                                    r.get("text") == f"{NUDGE}\n{NOTIFY}" for r in thread)}
             save(path, state)
             print("recovered-from-slack"); print(json.dumps(state, indent=2)); return
-    text = f"{question}\n_{marker(slug)}_"
     resp = posted({"channel": CHANNEL, "text": text})
     state = {"issue": slug, "channel": CHANNEL, "ts": resp["ts"], "last_ts": resp["ts"],
              "question": text, "answer": None, "nudged": False}
@@ -222,7 +249,13 @@ def main(argv):
     if cmd == "ask" and len(args) == 2:
         cmd_ask(args[0], args[1])
     elif cmd == "wait" and 1 <= len(args) <= 2:
-        cmd_wait(args[0], float(args[1]) if len(args) == 2 else 1800.0)
+        try:
+            timeout = float(args[1]) if len(args) == 2 else 1800.0
+            if not math.isfinite(timeout) or timeout < 0:
+                raise ValueError()
+        except ValueError:
+            fail("timeout must be a finite nonnegative number of seconds", 1)
+        cmd_wait(args[0], timeout)
     elif cmd == "reply" and len(args) == 3 and args[0] == "--notify":
         cmd_reply(args[1], args[2], notify=True)
     elif cmd == "reply" and len(args) == 2:

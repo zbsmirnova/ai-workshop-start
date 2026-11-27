@@ -27,16 +27,22 @@ leaves a decision open.
    (naming, file layout) are NOT open decisions — just use your judgment.
 
 3. **Ask in Slack, wait for the reply.** If there is at least one open decision:
-   - Pick a stable kebab-case slug for the issue (e.g. `make-the-skill-list-nicer`). **One slug =
-     one question thread**; a second open decision on the same issue needs its own slug
-     (e.g. `make-the-skill-list-nicer-2`).
+   - Generate the slug with `python3 scripts/issue-slug.py <github-issue-url> [decision-round]`.
+     It hashes the canonical issue URL (including owner/repository), never the title. Round defaults
+     to `1`; use the same round on restart and increment it for a new decision or reopened work.
+     For tasks without an issue URL, obtain a durable unique task identity before asking.
    - Ask with `scripts/ask.sh <slug> "<question>"`: ONE concise message quoting the issue title,
      stating the question, and offering concrete options (A/B/C) so the human can answer in a word
      or two. The script posts once and persists the thread to `state/<slug>.json`; it **refuses to
      re-ask** when state exists, and when the local state is gone (fresh clone — `state/` is
      gitignored) it **recovers the thread from Slack** via the `[issue-to-pr:<slug>]` marker it
-     embeds in the message. Recovery paginates history, verifies bot authorship, and resumes after
-     the newest bot question. Notifications do not advance that boundary. A separate local lock
+     embeds in the message. Recovery paginates the last 30 days of history, verifies bot authorship, and resumes after
+     the newest bot question. To resume an older thread, set `ISSUE_TO_PR_RECOVERY_OLDEST`
+     to a Unix timestamp before that question. A mismatched question warns and exits 1 without
+     returning an old decision; resume with the original text or use a new decision round.
+     Recovery reads retry transient errors up to three attempts within a 60-second retry budget,
+     respecting Retry-After (exit 2 if the delay exceeds the remaining budget). Posts are not retried.
+     Notifications do not advance that boundary. A separate local lock
      serializes commands in one checkout; independent clones must not ask concurrently.
      Exit codes: 0 posted/recovered/cached, 1 usage or missing configuration, 2 transient
      error or busy lock (retry later), 3 fatal API error.

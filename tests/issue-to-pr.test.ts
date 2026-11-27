@@ -21,6 +21,7 @@ class FakeSlack {
   posts: Record<string, unknown>[] = [];
   handlers = new Map<string, Handler>();
   httpStatus = 500;
+  retryAfter = "";
   failures = 0; // serve this many HTTP 500s before answering
 
   constructor() {
@@ -32,7 +33,7 @@ class FakeSlack {
     this.handlers.set('conversations.history', () => ({ ok: true, messages: [] }));
     this.handlers.set('conversations.replies', () => ({ ok: true, messages: [{ ts: '1001.000000' }] }));
     this.server = createServer((req, res) => {
-      if (this.failures > 0) { this.failures--; res.writeHead(this.httpStatus); res.end('boom'); return; }
+      if (this.failures > 0) { this.failures--; if (this.retryAfter) res.setHeader('Retry-After', this.retryAfter); res.writeHead(this.httpStatus); res.end('boom'); return; }
       const method = new URL(req.url!, 'http://x').pathname.slice(1);
       let raw = '';
       req.on('data', (c) => (raw += c));
@@ -63,6 +64,7 @@ async function setup(t: TestContext) {
     ISSUE_TO_PR_CHANNEL: CHANNEL,
     ISSUE_TO_PR_STATE_DIR: stateDir,
     ISSUE_TO_PR_POLL_INTERVAL: '0.05',
+    ISSUE_TO_PR_RECOVERY_OLDEST: '1',
   };
   return { slack, stateDir, env };
 }
@@ -218,7 +220,7 @@ for (const contents of ['', '{', 'null', '{}']) {
     writeFileSync(join(stateDir, 'i.json'), contents);
     assert.equal((await run('wait-reply.sh', ['i', '0'], env)).code, 1);
     slack.handlers.set('conversations.history', () => ({ ok: true, messages: [
-      { ts: '100.0', user: BOT, text: '[issue-to-pr:i]' },
+      { ts: '100.0', user: BOT, text: 'q\n_[issue-to-pr:i]_' },
     ] }));
     assert.equal((await run('ask.sh', ['i', 'q'], env)).code, 0);
     assert.equal(slack.posts.length, 0);
@@ -228,8 +230,8 @@ for (const contents of ['', '{', 'null', '{}']) {
 test('recovery paginates history and replies and ignores human markers and notifications', async (t) => {
   const { slack, stateDir, env } = await setup(t);
   slack.handlers.set('conversations.history', (_m, params) => params.cursor ?
-    { ok: true, messages: [{ ts: '100.0', user: BOT, text: '[issue-to-pr:i]' }] } :
-    { ok: true, messages: [{ ts: '200.0', user: 'HUMAN', text: '[issue-to-pr:i]' }],
+    { ok: true, messages: [{ ts: '100.0', user: BOT, text: 'q\n_[issue-to-pr:i]_' }] } :
+    { ok: true, messages: [{ ts: '200.0', user: 'HUMAN', text: 'q\n_[issue-to-pr:i]_' }],
       response_metadata: { next_cursor: 'older' } });
   slack.handlers.set('conversations.replies', (_m, params) => params.cursor ?
     { ok: true, messages: [
@@ -308,7 +310,7 @@ for (const [status, code] of [[403, 3], [404, 3], [429, 2], [503, 2]]) {
   test(`HTTP ${status} is classified as exit ${code}`, async (t) => {
     const { slack, env } = await setup(t);
     slack.httpStatus = status;
-    slack.failures = 1;
+    slack.failures = 3;
     assert.equal((await run('ask.sh', ['i', 'q'], env)).code, code);
   });
 }
@@ -335,3 +337,141 @@ test('process death releases lock without leaving a poisoned cache', async (t) =
   await exited;
   assert.equal((await run('ask.sh', ['i', 'q'], env)).code, 0);
 });
+
+for (const subtype of ['thread_broadcast', 'file_share', 'me_message']) {
+  test(`wait accepts human ${subtype} replies but excludes bots`, async (t) => {
+    const { slack, env } = await setup(t);
+    await run('ask.sh', ['i', 'q'], env);
+    slack.handlers.set('conversations.replies', () => ({ ok: true, messages: [
+      { ts: '1002', user: BOT, subtype, text: 'own bot' },
+      { ts: '1003', user: 'UAPP', bot_id: 'BOTHER', subtype, text: 'other bot' },
+      { ts: '1004', user: 'HUMAN', subtype, text: 'B' },
+    ] }));
+    const result = await run('wait-reply.sh', ['i', '0'], env);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.stdout.trim(), 'ANSWER: B');
+  });
+}
+
+test('recovery sends oldest on every page and excludes stale questions', async (t) => {
+  const { slack, env } = await setup(t);
+  let pages = 0;
+  slack.handlers.set('conversations.history', (_m, params) => {
+    assert.equal(params.oldest, '500');
+    pages++;
+    return params.cursor ? { ok: true, messages: [
+      { ts: '100', user: BOT, text: 'q\n_[issue-to-pr:i]_' },
+    ] } : { ok: true, messages: [], response_metadata: { next_cursor: 'older' } };
+  });
+  const result = await run('ask.sh', ['i', 'q'], { ...env, ISSUE_TO_PR_RECOVERY_OLDEST: '500' });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(pages, 2);
+  assert.equal(slack.posts.length, 1);
+});
+
+test('default recovery is bounded to the last 30 days', async (t) => {
+  const { slack, env } = await setup(t);
+  const before = Date.now() / 1000 - 30 * 86400;
+  slack.handlers.set('conversations.history', (_m, params) => {
+    assert.ok(Number(params.oldest) >= before);
+    assert.ok(Number(params.oldest) <= Date.now() / 1000 - 30 * 86400);
+    return { ok: true, messages: [] };
+  });
+  const { ISSUE_TO_PR_RECOVERY_OLDEST: _unused, ...defaultEnv } = env;
+  assert.equal((await run('ask.sh', ['i', 'q'], defaultEnv)).code, 0);
+});
+
+for (const cached of [false, true]) {
+  test(`question mismatch fails without reusing a decision (${cached ? 'cache' : 'Slack'})`, async (t) => {
+    const { slack, env, stateDir } = await setup(t);
+    const question = 'old question\n_[issue-to-pr:i]_';
+    if (cached) writeFileSync(join(stateDir, 'i.json'), JSON.stringify({
+      channel: CHANNEL, ts: '100', question, answer: 'old answer',
+    }));
+    slack.handlers.set('conversations.history', () => ({ ok: true, messages: [
+      { ts: '100', user: BOT, text: question },
+    ] }));
+    const result = await run('ask.sh', ['i', 'new question'], env);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /question differs/);
+    assert.doesNotMatch(result.stdout, /old answer/);
+    assert.equal(slack.posts.length, 0);
+  });
+}
+
+test('recovery retries a rate-limited history page with Retry-After', async (t) => {
+  const { slack, env } = await setup(t);
+  let first = 0;
+  let attempts = 0;
+  slack.handlers.set('conversations.history', () => {
+    if (++attempts === 1) {
+      first = performance.now();
+      return { ok: false, error: 'ratelimited', retry_after: 0.2 };
+    }
+    assert.ok(performance.now() - first >= 190);
+    return { ok: true, messages: [] };
+  });
+  assert.equal((await run('ask.sh', ['i', 'q'], env)).code, 0);
+  assert.equal(attempts, 2);
+  assert.equal(slack.posts.length, 1);
+});
+
+test('recovery does not retry early when Retry-After exceeds budget', async (t) => {
+  const { slack, env } = await setup(t);
+  let attempts = 0;
+  slack.handlers.set('conversations.history', () => {
+    attempts++;
+    return { ok: false, error: 'ratelimited', retry_after: 120 };
+  });
+  assert.equal((await run('ask.sh', ['i', 'q'], env)).code, 2);
+  assert.equal(attempts, 1);
+  assert.equal(slack.posts.length, 0);
+});
+
+for (const timeout of ['abc', '-1', 'nan', 'inf']) {
+  test(`invalid timeout ${timeout} fails without a traceback`, async (t) => {
+    const { env } = await setup(t);
+    const result = await run('wait-reply.sh', ['i', timeout], env);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /timeout must/);
+    assert.doesNotMatch(result.stderr, /Traceback/);
+  });
+}
+
+test('issue slug is stable across clones and separates repositories, issues and decision rounds', async () => {
+  const slug = (url: string, round = '1') => new Promise<string>((resolve, reject) => {
+    execFile('python3', [join(SCRIPTS, 'issue-slug.py'), url, round], (err, stdout) =>
+      err ? reject(err) : resolve(stdout.trim()));
+  });
+  const original = await slug('https://github.com/Owner/Repo/issues/12');
+  assert.match(original, /^issue-[a-f0-9]{64}-1$/);
+  assert.equal(await slug('https://github.com/owner/repo/issues/12/'), original);
+  assert.notEqual(await slug('https://github.com/other/repo/issues/12'), original);
+  assert.notEqual(await slug('https://github.com/owner/repo/issues/13'), original);
+  assert.notEqual(await slug('https://github.com/owner/repo/issues/12', '2'), original);
+  await assert.rejects(slug('title-only'));
+  await assert.rejects(slug('https://github.com/owner/repo/issues/12', '0'));
+});
+
+
+test('ask honors HTTP Retry-After before recovering', async (t) => {
+  const { slack, env } = await setup(t);
+  slack.httpStatus = 429;
+  slack.retryAfter = '1';
+  slack.failures = 1;
+  const start = performance.now();
+  const result = await run('ask.sh', ['i', 'q'], env);
+  assert.equal(result.code, 0, result.stderr);
+  assert.ok(performance.now() - start >= 1000);
+  assert.equal(slack.posts.length, 1);
+});
+
+for (const oldest of ['abc', '-1', 'nan', 'inf']) {
+  test(`invalid recovery cutoff ${oldest} fails before posting`, async (t) => {
+    const { slack, env } = await setup(t);
+    const result = await run('ask.sh', ['i', 'q'], { ...env, ISSUE_TO_PR_RECOVERY_OLDEST: oldest });
+    assert.equal(result.code, 1);
+    assert.doesNotMatch(result.stderr, /Traceback/);
+    assert.equal(slack.posts.length, 0);
+  });
+}

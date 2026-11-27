@@ -14,5 +14,5 @@ rely on the working copy persisting between runs.
 ## Thread polling gotcha
 A naive `set -e` + urllib poll loop dies on the first network blip and can't distinguish
 "revoked token" from "timeout". Separate exit codes (2 timeout / 3 fatal) and retry transient
-errors with backoff; also only count replies with a `user`, no `bot_id`, no `subtype`, and a
+errors with backoff; also only count replies with a `user`, no `bot_id`, an allowed human subtype (including `thread_broadcast`), and a
 `ts` newer than the bot's last thread message.
