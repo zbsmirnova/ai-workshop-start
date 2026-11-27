@@ -14,8 +14,7 @@ leaves a decision open.
 - Slack token: `SLACK_BOT_TOKEN` env var, or `~/.slack_token` (written by `.air/cloud/startup.sh`
   in Air cloud, where the secret does not reach the agent shell). The scripts check both and fail
   with a clear message when neither is set.
-- Slack channel for questions: `ISSUE_TO_PR_CHANNEL` env var; defaults to `C0CN90V19L0`
-  (#zina-workshop-test — a workshop channel; set the env var when using this skill elsewhere).
+- Slack channel for questions: `ISSUE_TO_PR_CHANNEL` env var (required when asking).
 
 ## Workflow
 
@@ -36,12 +35,16 @@ leaves a decision open.
      or two. The script posts once and persists the thread to `state/<slug>.json`; it **refuses to
      re-ask** when state exists, and when the local state is gone (fresh clone — `state/` is
      gitignored) it **recovers the thread from Slack** via the `[issue-to-pr:<slug>]` marker it
-     embeds in the message, so no run ever double-posts.
+     embeds in the message. Recovery paginates history, verifies bot authorship, and resumes after
+     the newest bot question. Notifications do not advance that boundary. A separate local lock
+     serializes commands in one checkout; independent clones must not ask concurrently.
+     Exit codes: 0 posted/recovered/cached, 1 usage or missing configuration, 2 transient
+     error or busy lock (retry later), 3 fatal API error.
    - Wait with `scripts/wait-reply.sh <slug> [timeout-seconds]` (run it in the background): polls
-     the thread for a human reply newer than the bot's last message, retries transient
+     the thread for the first human reply newer than the bot's last question, retries transient
      network/rate-limit errors with backoff, fails fast on fatal ones (revoked token, bot removed),
      records the answer in the state file, and prints `ANSWER: <text>`. An already-recorded answer
-     returns immediately. Exit codes: 0 answered, 1 usage/missing state or token, 2 timeout,
+     returns immediately. Exit codes: 0 answered, 1 usage/missing state or token, 2 timeout/transient/busy,
      3 fatal API error. Do NOT start implementing the ambiguous part before the answer.
    - **On any restart** (new session, fresh environment): just run `ask.sh` again with the same
      slug and question — it resumes (local state or Slack recovery) instead of re-posting — then
@@ -49,8 +52,10 @@ leaves a decision open.
    - If a reply raises new questions, continue **in the same thread** with
      `scripts/reply.sh <slug> "<follow-up>"`, then `wait-reply.sh` again — it waits for a reply
      newer than the follow-up.
-   - **On timeout, stop — never guess.** Post `scripts/reply.sh <slug> "Still waiting on this
-     decision before implementing."`, leave the state pending, report "waiting on Slack", and end
+   - **On timeout, stop — never guess.** The script checks once more for a reply, then posts
+     one waiting notification per thread (recorded locally and recovered from Slack). It never
+     advances the answer boundary, so replies arriving during the post still count.
+     Leave the state pending, report "waiting on Slack", and end
      the run. The next run resumes with `wait-reply.sh`. (This is the AGENTS.md "never guess on
      open decisions" rule; there is no "conservative default" for a taste question.)
 
@@ -65,11 +70,13 @@ leaves a decision open.
    Slack thread decision ("Per Slack: <answer>"). Attach a short video demo when the change is
    interactive (per AGENTS.md).
 
-7. **Close the loop in Slack:** `scripts/reply.sh <slug> "<PR link>"`.
+7. **Close the loop in Slack:** `scripts/reply.sh --notify <slug> "<PR link>"` (preserves the answer).
 
 8. Run the `update-memory` skill after committing, per AGENTS.md.
 
 ## Known limitations (acceptable for now)
 
 - Any human in the channel counts as the answerer — answers aren't restricted to the issue author.
+- Only the first human message after a question counts; put the full decision in one message.
+- Recovery requires the bot question and thread to remain in Slack history.
 - Replies must be in the thread; channel-level answers and emoji reactions are not detected.

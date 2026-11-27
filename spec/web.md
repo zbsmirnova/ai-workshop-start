@@ -8,7 +8,7 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 - A **filter field**: filters the shown skills *live*, client-side, with the [CLI filter rules](cli.md#filter); no re-scan
 - With an active filter: the field shows an `M of N` **count badge**, and each matching entry collapses to its **name** and a short **description snippet** around the first match, with every matched word *highlighted*; clearing the filter restores the full entries
 - The header: `<owner>/<repo> · N skills`; with an active filter, `<owner>/<repo> · M of N skills`
-- One entry per skill, as a bordered card, ordered by name, then primary path (as in the [CLI](cli.md)): **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
+- One entry per skill, in the scan order: **name**, **description**, the **link** pinned to the scanned commit, and its `also:` links
 - When the source can tell, the entry also shows when the skill was last updated, as `updated <YYYY-MM-DD>` (UTC); a local directory scan uses the `SKILL.md` file's modification date, a GitHub scan omits it
 - Selecting a skill shows its full **SKILL.md**: the front matter, if any, above the instructions, as plain text
 - Warnings under the list; errors as a clear message in place of the result
