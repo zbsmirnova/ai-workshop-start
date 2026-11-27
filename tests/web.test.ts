@@ -557,3 +557,42 @@ test('the page shows when a skill was last updated', async (t) => {
   assert.equal(updated.length, 3);
   for (const label of updated) assert.match(label!, /^updated \d{4}-\d{2}-\d{2}$/);
 });
+
+for (const [name, query, marked] of [
+  ['İxylophone', 'xy', ['xy']],
+  ['İ', 'i', ['İ']],
+  ['😀İxylophone', 'xy', ['xy']],
+  ['ΟΣ', 'ος', ['ΟΣ']],
+  ['AİxAİx', 'x', ['x', 'x']],
+  ['İ', 'i \u0307', ['İ']],
+] as const) {
+  test(`Unicode highlights preserve original characters: ${name} / ${query}`, async t => {
+    const root = temporaryRepository(t);
+    const description = `Read ${name} carefully.`;
+    writeSkill(root, '.agents/skills/unicode/SKILL.md', `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(description)}\n---\nTest input.\n`);
+    const { document } = await page(t, `/?repo=${encodeURIComponent(root)}&filter=${encodeURIComponent(query)}`);
+    assert.equal(document.querySelector('#skills .name')?.textContent, name);
+    assert.equal(document.querySelector('#skills .description')?.textContent, description);
+    for (const selector of ['.name', '.description']) {
+      assert.deepEqual([...document.querySelectorAll(`#skills ${selector} mark`)].map(node => node.textContent), [...marked]);
+    }
+  });
+}
+
+test('Unicode snippet offsets refer to the original description', async t => {
+  const root = temporaryRepository(t);
+  const description = 'İ'.repeat(60) + '😀xy' + 'z'.repeat(80);
+  writeSkill(root, '.agents/skills/unicode/SKILL.md', `---\nname: music\ndescription: ${JSON.stringify(description)}\n---\nTest input.\n`);
+  const { document } = await page(t, `/?repo=${encodeURIComponent(root)}&filter=xy`);
+  const snippet = document.querySelector('#skills .description')!;
+  assert.equal(snippet.textContent, '…' + 'İ'.repeat(18) + '😀xy' + 'z'.repeat(40) + '…');
+  assert.equal(snippet.querySelector('mark')?.textContent, 'xy');
+});
+
+test('Unicode snippet boundaries keep whole surrogate pairs', async t => {
+  const root = temporaryRepository(t);
+  const description = '😀' + 'a'.repeat(19) + 'xy' + 'b'.repeat(39) + '😀 tail';
+  writeSkill(root, '.agents/skills/unicode/SKILL.md', `---\nname: music\ndescription: ${JSON.stringify(description)}\n---\nTest input.\n`);
+  const { document } = await page(t, `/?repo=${encodeURIComponent(root)}&filter=xy`);
+  assert.equal(document.querySelector('#skills .description')?.textContent, description.slice(0, -5) + '…');
+});
