@@ -8,6 +8,9 @@ Integration tests for every case in the spec.
 ## Definition of done
 - All tests pass locally
 
+## Delegated issues
+Implement an issue (e.g. one labeled "Delegated to AI") with the `issue-to-pr` skill ([.claude/skills/issue-to-pr](.claude/skills/issue-to-pr/SKILL.md)): when the issue leaves a decision open, it asks in Slack first and waits for the thread reply — never guess on open decisions. Pending questions persist in the skill's `state/`; on restart, resume waiting instead of re-asking.
+
 ## Pull requests
 - Attach a short video demo when it makes sense — interactive behavior (live filtering, progressive loading, error flows), not static output
 
