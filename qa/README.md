@@ -38,3 +38,9 @@ Each script is also encoded as a deterministic Playwright test in [`e2e/`](../e2
 same fixture, fixed viewport and fonts, a video of every run, and pixel-exact screenshot baselines
 in `e2e/screenshots` compared on CI. The agent-driven skill stays for exploratory judgment; the e2e
 suite is the regression gate.
+
+## Process documentation
+
+Only numbered `NN-slug.md` files are runnable scripts. [Automation setup](automation.md) and
+[exploratory red-agent acceptance](red-agent.md) describe workflows, not product specifications
+or manual test scripts.
