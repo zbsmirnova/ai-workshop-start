@@ -24,18 +24,21 @@ leaves a decision open.
    conflicting constraints, or missing acceptance criteria. Routine implementation choices
    (naming, file layout) are NOT open decisions — just use your judgment.
 
-3. **Ask in Slack, wait for the reply.** If there is at least one open decision:
-   - Post ONE concise message to the channel with `chat.postMessage`: quote the issue title, state
-     the question(s), and offer concrete options (A/B/C) so the human can answer in a word or two.
-
-     ```bash
-     curl -s -X POST -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H "Content-Type: application/json" \
-       -d '{"channel":"C0CN90V19L0","text":"<question>"}' https://slack.com/api/chat.postMessage
-     ```
-     Save the returned `ts` — that message's thread is where the answer arrives.
-   - Poll `conversations.replies?channel=C0CN90V19L0&ts=<ts>` every ~15s (run the poll loop in the
-     background, up to ~30 min) until a non-bot reply appears. Do NOT start implementing the
-     ambiguous part before the reply.
+3. **Ask in Slack, wait for the reply — via the persisted state in `state/`.** If there is at
+   least one open decision:
+   - Pick a stable kebab-case slug for the issue (e.g. `make-the-skill-list-nicer`).
+   - Ask with `scripts/ask.sh <slug> "<question>"`: ONE concise message quoting the issue title,
+     stating the question(s), and offering concrete options (A/B/C) so the human can answer in a
+     word or two. The script posts to the channel, saves `{channel, ts, question, answer}` to
+     `state/<slug>.json`, and — crucially — **refuses to re-ask** when state for the slug already
+     exists, so a restarted or headless run never double-posts.
+   - Wait with `scripts/wait-reply.sh <slug> [timeout-seconds]` (run it in the background): it
+     resumes from the state file, polls the thread every ~15s, fails loudly on API errors
+     (revoked token, bot removed, …), records the answer back into the state file, and prints
+     `ANSWER: <text>`. If the answer was already recorded by an earlier run, it returns it
+     immediately. Do NOT start implementing the ambiguous part before the answer.
+   - **On any restart** (new session, fresh environment with the same checkout): check `state/`
+     first — a pending `<slug>.json` with `"answer": null` means resume `wait-reply.sh`, not re-ask.
    - If a reply raises new questions, continue the conversation **in the same thread**
      (`chat.postMessage` with `"thread_ts":"<ts>"`), and keep waiting.
    - If no reply arrives within the timeout, post a note in the thread saying which default you're
