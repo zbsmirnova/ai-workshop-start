@@ -475,3 +475,48 @@ for (const oldest of ['abc', '-1', 'nan', 'inf']) {
     assert.equal(slack.posts.length, 0);
   });
 }
+
+for (const link of ['https://example.com/?a=1&amp;b=2', '<https://example.com/?a=1&amp;b=2>', '<https://example.com/?a=1&amp;b=2|issue>']) {
+  test(`recovery accepts escaped questions and Slack link form ${link}`, async (t) => {
+    const { slack, stateDir, env } = await setup(t);
+    const question = 'Issue <make it nicer>: cards & badges > table? Literal &lt; and <https://literal.example>. http://example.com/path mailto:team@example.com https://example.com/?a=1&b=2';
+    const stored = `Issue &lt;make it nicer&gt;: cards &amp; badges &gt; table? Literal &amp;lt; and &lt;https://literal.example&gt;. <http://example.com/path> <mailto:team@example.com|team> ${link}\n_[issue-to-pr:i]_`;
+    slack.handlers.set('conversations.history', () => ({ ok: true, messages: [
+      { ts: '100', user: BOT, text: stored },
+    ] }));
+    slack.handlers.set('conversations.replies', () => ({ ok: true, messages: [
+      { ts: '100', user: BOT, text: stored },
+      { ts: '101', user: 'HUMAN', text: 'B' },
+    ] }));
+    const recovered = await run('ask.sh', ['i', question], env);
+    assert.equal(recovered.code, 0, recovered.stderr);
+    assert.match(recovered.stdout, /recovered-from-slack/);
+    assert.equal(JSON.parse(readFileSync(join(stateDir, 'i.json'), 'utf8')).question,
+      `${question}\n_[issue-to-pr:i]_`);
+    const cached = await run('ask.sh', ['i', question], env);
+    assert.equal(cached.code, 0, cached.stderr);
+    assert.match(cached.stdout, /already-asked/);
+    const answer = await run('wait-reply.sh', ['i', '0'], env);
+    assert.equal(answer.code, 0, answer.stderr);
+    assert.equal(answer.stdout.trim(), 'ANSWER: B');
+    assert.equal(slack.posts.length, 0);
+  });
+}
+
+for (const cached of [false, true]) {
+  test(`normalization preserves meaningful question differences (${cached ? 'cache' : 'Slack'})`, async (t) => {
+    const { slack, stateDir, env } = await setup(t);
+    const question = `${cached ? '&lt;' : '&amp;lt;'}\n_[issue-to-pr:i]_`;
+    if (cached) writeFileSync(join(stateDir, 'i.json'), JSON.stringify({
+      channel: CHANNEL, ts: '100', question, answer: 'old answer',
+    }));
+    slack.handlers.set('conversations.history', () => ({ ok: true, messages: [
+      { ts: '100', user: BOT, text: question },
+    ] }));
+    const result = await run('ask.sh', ['i', '<'], env);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /question differs/);
+    assert.doesNotMatch(result.stdout, /old answer/);
+    assert.equal(slack.posts.length, 0);
+  });
+}

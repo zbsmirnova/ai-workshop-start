@@ -140,7 +140,12 @@ def posted(payload):
         raise Fatal("chat.postMessage: missing ts; run ask to recover from Slack before retrying")
     return resp
 
-def check_question(actual, expected):
+def check_question(actual, expected, slack=False):
+    if slack and isinstance(actual, str):
+        # Strip only Slack URL wrappers before decoding: literal angle brackets
+        # in the question are escaped by Slack and must remain significant.
+        actual = re.sub(r"<((?:https?://|mailto:)[^<>|\s]+)(?:\|[^<>]*)?>", r"\1", actual)
+        actual = unescape(actual)
     if actual != expected:
         fail("warning: recovered/cached question differs; use the original question to resume "
              "or a new decision slug for new work", 1)
@@ -163,13 +168,13 @@ def cmd_ask(slug, question):
     bot_id = read_with_retry("auth.test")["user_id"]
     for m in messages("conversations.history", retry=True, channel=CHANNEL, oldest=oldest):
         if marker(slug) in m.get("text", "") and m.get("ts") and m.get("user") == bot_id and float(m["ts"]) >= float(oldest):
-            check_question(m.get("text"), text)
+            check_question(m.get("text"), text, slack=True)
             thread = list(messages("conversations.replies", retry=True, channel=CHANNEL, ts=m["ts"]))
             bot_questions = [r["ts"] for r in thread if r.get("user") == bot_id
                              and NOTIFY not in r.get("text", "")]
             state = {"issue": slug, "channel": CHANNEL, "ts": m["ts"],
                      "last_ts": max([m["ts"]] + bot_questions, key=float),
-                     "question": m["text"], "answer": None, "recovered": True,
+                     "question": text, "answer": None, "recovered": True,
                      "nudged": any(r.get("user") == bot_id and
                                    r.get("text") == f"{NUDGE}\n{NOTIFY}" for r in thread)}
             save(path, state)
