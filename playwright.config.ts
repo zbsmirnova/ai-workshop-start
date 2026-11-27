@@ -18,7 +18,7 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixels: 0, animations: 'disabled', caret: 'hide' },
   },
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: 'http://localhost:4174',
     viewport: { width: 1280, height: 800 },
     deviceScaleFactor: 1,
     locale: 'en-US',
@@ -38,9 +38,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: './skill-atlas serve --port 4173',
-    url: 'http://localhost:4173',
-    reuseExistingServer: !process.env.CI,
+    command: 'node e2e/server.ts',
+    url: 'http://localhost:4174',
+    reuseExistingServer: false,
     stdout: 'ignore',
   },
 });

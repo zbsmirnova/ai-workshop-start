@@ -21,3 +21,6 @@ build-tools-bump-gradle-api — Bumps the Gradle API…
 - One entry per verified equivalent [project skill](analysis.md#what-counts-as-a-skill); verified alternate paths print as `also:` links
 - IDs use the primary path; sorted by **name**, then primary path; the description's *first sentence*
 - Warnings go to *stderr*
+
+## Skill map
+`./skill-atlas map <GitHub URL | directory> [--model claude]` groups skills; see [the skill map](map.md).

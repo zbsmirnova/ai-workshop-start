@@ -2,18 +2,21 @@
 // what to scan comes in through `open`. Nothing is stored.
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { AtlasError } from './core/errors.ts';
+import { cluster, type MapSkill, type ModelAnswer } from './core/cluster.ts';
+import { AtlasError, ModelUnavailableError } from './core/errors.ts';
 import { skillLink } from './core/model.ts';
 import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
 import { scan, type ScanResult, type Source } from './core/scan.ts';
 
 export type WebOptions = {
+  modelAnswer?: ModelAnswer;
   /** Opens what the user asked to scan. */
   open(input: string): Promise<Source>;
   /** Scans one page of a GitHub owner's repositories; see spec/organization.md. */
   scanOrganization?(input: string, page: number): Promise<OrganizationPage>;
 };
 
+const MAP_PAGE = readFileSync(new URL('./web/map.html', import.meta.url), 'utf8');
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url), 'utf8');
 
 /** Only this machine: a page on another host must not reach the server through DNS rebinding. */
@@ -70,10 +73,41 @@ export function listen(server: Server, port: number): Promise<string> {
   });
 }
 
-async function handle(request: IncomingMessage, response: ServerResponse, { open, scanOrganization }: WebOptions) {
+async function handle(request: IncomingMessage, response: ServerResponse, { open, scanOrganization, modelAnswer }: WebOptions) {
   if (!LOCAL_HOSTS.has(hostname(request.headers.host ?? ''))) return send(response, 403, { error: 'Forbidden host' });
   const url = new URL(request.url ?? '/', 'http://localhost');
+  if (url.pathname === '/api/map' && request.method === 'POST') {
+    // JSON and same-origin requests only: another website must not trigger a local model run.
+    if (request.headers.origin && request.headers.origin !== `http://${request.headers.host}`) return send(response, 403, { error: 'Forbidden origin' });
+    if (!request.headers['content-type']?.startsWith('application/json')) return send(response, 400, { error: 'Expected JSON' });
+    try {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of request) {
+        chunks.push(chunk);
+        size += chunk.length;
+        if (size > 1_000_000) return send(response, 413, { error: 'Map input is too large' });
+      }
+      let input;
+      try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new AtlasError('Expected JSON'); }
+      if (Array.isArray(input?.skills) && input.skills.length > 2000) throw new AtlasError('Too many skills: map supports at most 2,000 skills');
+      if (!input || !Array.isArray(input.skills) || input.skills.some((s: MapSkill) => !s || !['id', 'name', 'description'].every(k => typeof s[k as keyof MapSkill] === 'string')) || new Set(input.skills.map((s: MapSkill) => s.id)).size !== input.skills.length) throw new AtlasError('Expected skills with unique ids, names and descriptions');
+      const method = input.method ?? 'heuristic';
+      if (method !== 'heuristic' && method !== 'claude') throw new AtlasError('Choose heuristic or claude');
+      if (method === 'claude' && input.skills.length && !modelAnswer) return send(response, 503, { error: 'Claude clustering is not available here' });
+      try {
+        return send(response, 200, { clusters: await cluster(input.skills, method, modelAnswer) });
+      } catch (error) {
+        if (method !== 'claude') throw error;
+        return send(response, error instanceof ModelUnavailableError ? 503 : 502, { error: error instanceof Error ? error.message : String(error) });
+      }
+    } catch (error) {
+      if (!(error instanceof AtlasError)) throw error;
+      return send(response, 400, { error: error.message });
+    }
+  }
   if (request.method !== 'GET') return send(response, 404, { error: 'Not found' });
+  if (url.pathname === '/map') return send(response, 200, MAP_PAGE, 'text/html; charset=utf-8');
   if (url.pathname === '/') return send(response, 200, PAGE, 'text/html; charset=utf-8');
   if (url.pathname !== '/api/scan') return send(response, 404, { error: 'Not found' });
   const repo = url.searchParams.get('repo')?.trim();

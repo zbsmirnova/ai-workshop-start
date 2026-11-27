@@ -1,11 +1,13 @@
 // The skill-atlas commands. The same code serves the Node CLI and the browser
 // terminal: everything that differs between them comes in through the context.
+import { cluster, type ModelAnswer } from './core/cluster.ts';
 import { AtlasError } from './core/errors.ts';
 import { skillLink, type Repository, type Skill } from './core/model.ts';
 import { parseOwnerUrl, type OrganizationPage } from './core/organization.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type Context = {
+  modelAnswer?: ModelAnswer;
   /** Opens what the user asked to scan. */
   open(input: string): Promise<Source>;
   /** Scans every repository of a GitHub owner at once; see spec/organization.md. */
@@ -22,6 +24,7 @@ const DEFAULT_PORT = 4173;
 const usage = `Usage: skill-atlas <command>
 
   scan <GitHub URL | directory> [--filter <words>]   find project skills in a repository, or every repository of an owner, and print them
+  map <GitHub URL | directory> [--model claude]   group skills by shared words or a tiny model
   serve [--port <port>]           the same, in a local web view (port ${DEFAULT_PORT} by default)
   help                            show this help`;
 
@@ -30,6 +33,7 @@ export async function run(args: string[], context: Context): Promise<number> {
   const [command = 'help', ...rest] = args;
   try {
     if (command === 'scan') await scanCommand(rest, context);
+    else if (command === 'map') await mapCommand(rest, context);
     else if (command === 'serve') await serveCommand(rest, context);
     else if (command === 'help') context.print(usage);
     else throw new AtlasError(`Unknown command: ${command}\n\n${usage}`);
@@ -123,4 +127,28 @@ function printRepository(repository: Repository, skills: Skill[], { print }: Con
 function firstSentence(text: string): string {
   const line = text.replace(/\s+/g, ' ').trim();
   return /^.*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
+}
+
+async function mapCommand(args: string[], context: Context) {
+  const [input, ...rest] = args;
+  if (!input || input.startsWith('--') || (rest.length && (rest.length !== 2 || rest[0] !== '--model' || rest[1] !== 'claude'))) {
+    throw new AtlasError('Usage: skill-atlas map <GitHub URL | directory> [--model claude]');
+  }
+  const sections = parseOwnerUrl(input) && context.scanOrganization
+    ? await context.scanOrganization(input) : null;
+  const results = sections ? sections.repositories : [await scan(await context.open(input))];
+  const skills = results.flatMap(r => r.skills);
+  for (const warning of sections?.warnings ?? []) context.error(`warning: ${warning}`);
+  for (const result of results) for (const warning of result.warnings) context.error(`warning: ${result.repository.id}: ${warning}`);
+  const method = rest.length ? 'claude' : 'heuristic';
+  const groups = await cluster(skills, method, context.modelAnswer);
+  context.print(`Skill map · ${count(skills.length, 'skill')} · ${count(groups.length, 'group')} · ${method}`);
+  for (const group of groups) {
+    context.print(`\n${group.label}`);
+    for (const id of group.skillIds) {
+      const skill = skills.find(s => s.id === id)!;
+      if (group.skillIds.length !== 1 || group.label !== skill.name) context.print(`  ${skill.name}`);
+      context.print(`    ${skillLink(results.find(r => r.repository.id === skill.repository)!.repository, skill)}`);
+    }
+  }
 }

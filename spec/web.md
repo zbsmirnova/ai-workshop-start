@@ -35,3 +35,6 @@ It shows the same [scan](analysis.md) as the [command line](cli.md); *nothing is
 - A request whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` (any port) → `403`
 - `GET /` → the page; any other path or method → `404`
 - A port that is in use → a clear message, exit code 1
+
+## Skill map
+`GET /map` opens the interactive [skill map](map.md); `POST /api/map` groups its skills.
