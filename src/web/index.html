@@ -305,7 +305,12 @@ function skillItem(skill, nested) {
   if (skill.updated) item.append(element('div', 'updated', `updated ${skill.updated}`));
   const select = () => { selectedId = skill.id; applySelection(); };
   item.addEventListener('click', select);
-  item.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } });
+  item.addEventListener('keydown', (event) => {
+    if (event.target === item && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      select();
+    }
+  });
   return item;
 }
 
